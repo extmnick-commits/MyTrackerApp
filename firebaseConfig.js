@@ -2,16 +2,17 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// Your NEW Firebase configuration for estevandata
+// Your NEW Firebase configuration for estevanmytrackerapp
 const firebaseConfig = {
-  apiKey: "AIzaSyBlFtO4evfY70FINL-sCS1biePPtZ22AO0", 
-  authDomain: "estevandata.firebaseapp.com",
-  projectId: "estevandata", // Must be all lowercase
-  storageBucket: "estevandata.firebasestorage.app",
-  messagingSenderId: "483745166375", 
-  appId: "1:483745166375:web:e30e2052d69d237ed00a02" 
+  apiKey: "AIzaSyBIYsTWO-GGmkNlpALCaoCTAE_TDkoHoYI",
+  authDomain: "estevanmytrackerapp.firebaseapp.com",
+  projectId: "estevanmytrackerapp",
+  storageBucket: "estevanmytrackerapp.firebasestorage.app",
+  messagingSenderId: "578894218502",
+  appId: "1:578894218502:web:15ee3a1cef18bf96ff0a87"
 };
 
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 // EXPORT these so they can be used in your screens
