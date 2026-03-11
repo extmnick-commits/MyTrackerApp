@@ -1,8 +1,8 @@
-import * as Haptics from 'expo-haptics';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { CheckCircle2, Clock, TrendingUp, X } from 'lucide-react-native';
+import { deleteField, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { CheckCircle2, Clock, Trash2, TrendingUp, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -19,25 +19,24 @@ import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
 import { db } from '../../firebaseConfig';
 
-// Constants
 const MONTHLY_LIMIT = 75;
-const USER_ID = "estevan123";
-
-// Type definitions for TypeScript
-interface WorkLog {
-  totalHours: number;
-  in: string;
-  out: string;
-}
+// Updated to the new specific profile
+const USER_ID = "estevan209";
 
 export default function WorkTracker() {
+  // Login States
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+
+  // Tracker States
   const [hoursWorked, setHoursWorked] = useState(0);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [workLogs, setWorkLogs] = useState<Record<string, any>>({});
-  
-  // Modal & Time States
   const [isModalVisible, setModalVisible] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
+  
+  // Input states
   const [inHour, setInHour] = useState('09');
   const [inMin, setInMin] = useState('00');
   const [inAmPm, setInAmPm] = useState('AM');
@@ -48,94 +47,154 @@ export default function WorkTracker() {
 
   const currentMonthYear = new Date().toISOString().slice(0, 7); 
 
+  // Real-time listener
   useEffect(() => {
     const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setWorkLogs(data);
-        
-        const total = Object.values(data).reduce((sum: number, log: any) => {
-          const logHours = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
-          return sum + logHours;
-        }, 0);
-        setHoursWorked(total);
+      const data = docSnap.exists() ? docSnap.data() : {};
+      setWorkLogs(data);
+      
+      const total = Object.values(data).reduce((sum: number, log: any) => {
+        const val = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
+        return sum + val;
+      }, 0);
+      setHoursWorked(total);
 
-        // Weekly Logic
-        const today = new Date();
-        let weeklySum = 0;
-        for(let i = 0; i < 7; i++) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          const dateStr = d.toISOString().split('T')[0];
-          if(data[dateStr]) {
-            weeklySum += typeof data[dateStr] === 'object' ? data[dateStr].totalHours : Number(data[dateStr]);
-          }
+      const today = new Date();
+      let weeklySum = 0;
+      for(let i = 0; i < 7; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        if(data[dateStr]) {
+          weeklySum += typeof data[dateStr] === 'object' ? data[dateStr].totalHours : Number(data[dateStr]);
         }
-        setWeeklyTotal(weeklySum);
       }
+      setWeeklyTotal(weeklySum);
     });
     return () => unsubscribe();
   }, [currentMonthYear]);
 
-  // Instant math for the shift duration
+  // Time calculation logic
   useEffect(() => {
     let inH = parseInt(inHour) || 0;
     let outH = parseInt(outHour) || 0;
+    let inM = parseInt(inMin) || 0;
+    let outM = parseInt(outMin) || 0;
+
     if (inAmPm === 'PM' && inH !== 12) inH += 12;
     if (inAmPm === 'AM' && inH === 12) inH = 0;
     if (outAmPm === 'PM' && outH !== 12) outH += 12;
     if (outAmPm === 'AM' && outH === 12) outH = 0;
 
-    let inTime = inH + (parseInt(inMin) || 0) / 60;
-    let outTime = outH + (parseInt(outMin) || 0) / 60;
-    let diff = outTime - inTime;
+    let inTotal = inH + (inM / 60);
+    let outTotal = outH + (outM / 60);
+    let diff = outTotal - inTotal;
     if (diff < 0) diff += 24; 
     setCalculatedShift(Number(diff.toFixed(2)));
   }, [inHour, inMin, inAmPm, outHour, outMin, outAmPm]);
 
+  const handleLogin = () => {
+    if (loginUser.trim().toLowerCase() === 'estevan209' && loginPass === '1990') {
+      setIsLoggedIn(true);
+    } else {
+      Alert.alert('Access Denied', 'Incorrect username or password.');
+    }
+  };
+
   const toggleAmPm = (type: 'in' | 'out') => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (type === 'in') setInAmPm(prev => prev === 'AM' ? 'PM' : 'AM');
-    else setOutAmPm(prev => prev === 'AM' ? 'PM' : 'AM');
+    if (type === 'in') setInAmPm(p => p === 'AM' ? 'PM' : 'AM');
+    else setOutAmPm(p => p === 'AM' ? 'PM' : 'AM');
   };
 
   const handleDayPress = (day: { dateString: string }) => {
-    Haptics.selectionAsync();
     setSelectedDate(day.dateString);
-    const existingLog = workLogs[day.dateString];
-    if (existingLog && typeof existingLog === 'object') {
-      setInHour(existingLog.in.split(':')[0]);
-      setInMin(existingLog.in.split(':')[1].split(' ')[0]);
-      setInAmPm(existingLog.in.includes('PM') ? 'PM' : 'AM');
-      setOutHour(existingLog.out.split(':')[0]);
-      setOutMin(existingLog.out.split(':')[1].split(' ')[0]);
-      setOutAmPm(existingLog.out.includes('PM') ? 'PM' : 'AM');
+    const log = workLogs[day.dateString];
+    if (log && typeof log === 'object' && log.in && log.out) {
+      setInHour(log.in.split(':')[0]);
+      setInMin(log.in.split(':')[1].split(' ')[0]);
+      setInAmPm(log.in.includes('PM') ? 'PM' : 'AM');
+      setOutHour(log.out.split(':')[0]);
+      setOutMin(log.out.split(':')[1].split(' ')[0]);
+      setOutAmPm(log.out.includes('PM') ? 'PM' : 'AM');
+    } else {
+      setInHour('09'); setInMin('00'); setInAmPm('AM');
+      setOutHour('05'); setOutMin('00'); setOutAmPm('PM');
     }
     setModalVisible(true);
   };
 
   const saveHours = async () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
-    const formattedIn = `${inHour.padStart(2, '0')}:${inMin.padStart(2, '0')} ${inAmPm}`;
-    const formattedOut = `${outHour.padStart(2, '0')}:${outMin.padStart(2, '0')} ${outAmPm}`;
+    setModalVisible(false); 
+    try {
+      const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
+      const inTime = `${inHour.padStart(2, '0')}:${inMin.padStart(2, '0')} ${inAmPm}`;
+      const outTime = `${outHour.padStart(2, '0')}:${outMin.padStart(2, '0')} ${outAmPm}`;
 
-    await setDoc(docRef, {
-      [selectedDate]: { totalHours: calculatedShift, in: formattedIn, out: formattedOut }
-    }, { merge: true });
+      await setDoc(docRef, {
+        [selectedDate]: { 
+          totalHours: calculatedShift, 
+          in: inTime, 
+          out: outTime 
+        }
+      }, { merge: true });
+    } catch (error: any) {
+      Alert.alert("Firestore Error", error.message);
+    }
+  };
+
+  const deleteShift = async () => {
     setModalVisible(false);
+    try {
+      const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
+      await updateDoc(docRef, {
+        [selectedDate]: deleteField()
+      });
+    } catch (error: any) {
+      Alert.alert("Delete Error", error.message);
+    }
   };
 
   const progress = Math.min((hoursWorked / MONTHLY_LIMIT) * 100, 100);
   const progressColor = hoursWorked > MONTHLY_LIMIT ? "#EF4444" : "#3B82F6";
-
   const markedDates: any = {};
-  Object.keys(workLogs).forEach(date => {
-    markedDates[date] = { marked: true, dotColor: '#3B82F6' };
-  });
+  Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
   if (selectedDate) markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: '#3B82F6' };
 
+  // --- LOGIN SCREEN RENDER ---
+  if (!isLoggedIn) {
+    return (
+      <KeyboardAvoidingView style={styles.loginContainer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.loginBox}>
+          <Text style={styles.loginTitle}>Estevan Login</Text>
+          
+          <TextInput 
+            style={styles.loginInput} 
+            placeholder="Username" 
+            placeholderTextColor="#94A3B8" 
+            value={loginUser} 
+            onChangeText={setLoginUser} 
+            autoCapitalize="none" 
+          />
+          
+          <TextInput 
+            style={styles.loginInput} 
+            placeholder="Password" 
+            placeholderTextColor="#94A3B8" 
+            secureTextEntry 
+            value={loginPass} 
+            onChangeText={setLoginPass} 
+          />
+          
+          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
+            <Text style={styles.loginButtonText}>Access Tracker</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
+
+  // --- MAIN TRACKER RENDER ---
   return (
     <View style={styles.container}>
       <ScrollView>
@@ -162,8 +221,11 @@ export default function WorkTracker() {
           </View>
         </View>
         <View style={styles.calendarContainer}>
-          <Calendar theme={{ calendarBackground: '#1E293B', dayTextColor: '#F8FAFC', monthTextColor: '#F8FAFC' }}
-            onDayPress={handleDayPress} markedDates={markedDates} />
+          <Calendar 
+            theme={{ calendarBackground: '#1E293B', dayTextColor: '#F8FAFC', monthTextColor: '#F8FAFC', todayTextColor: '#3B82F6', arrowColor: '#3B82F6' }}
+            onDayPress={handleDayPress} 
+            markedDates={markedDates} 
+          />
         </View>
       </ScrollView>
 
@@ -173,18 +235,25 @@ export default function WorkTracker() {
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Shift: {selectedDate}</Text>
-                <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+                <View style={{ flexDirection: 'row' }}>
+                  {workLogs[selectedDate] && (
+                    <TouchableOpacity onPress={deleteShift} style={{ marginRight: 20 }}>
+                      <Trash2 color="#EF4444" size={24} />
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+                </View>
               </View>
-              {[ {label: 'Clock In', h: inHour, setH: setInHour, m: inMin, setM: setInMin, ap: inAmPm, type: 'in' as const},
-                 {label: 'Clock Out', h: outHour, setH: setOutHour, m: outMin, setM: setOutMin, ap: outAmPm, type: 'out' as const}
+              {[ {l: 'Clock In', h: inHour, setH: setInHour, m: inMin, setM: setInMin, ap: inAmPm, t: 'in' as const},
+                 {l: 'Clock Out', h: outHour, setH: setOutHour, m: outMin, setM: setOutMin, ap: outAmPm, t: 'out' as const}
               ].map((row, i) => (
                 <View key={i} style={styles.timeRow}>
-                  <Text style={styles.timeLabel}>{row.label}</Text>
+                  <Text style={styles.timeLabel}>{row.l}</Text>
                   <View style={styles.timeInputGroup}>
                     <TextInput style={styles.timeInput} keyboardType="number-pad" value={row.h} onChangeText={row.setH} selectTextOnFocus maxLength={2} />
                     <Text style={styles.colon}>:</Text>
                     <TextInput style={styles.timeInput} keyboardType="number-pad" value={row.m} onChangeText={row.setM} selectTextOnFocus maxLength={2} />
-                    <TouchableOpacity style={styles.amPmToggle} onPress={() => toggleAmPm(row.type)}><Text style={styles.amPmText}>{row.ap}</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.amPmToggle} onPress={() => toggleAmPm(row.t)}><Text style={styles.amPmText}>{row.ap}</Text></TouchableOpacity>
                   </View>
                 </View>
               ))}
@@ -225,5 +294,13 @@ const styles = StyleSheet.create({
   durationContainer: { flexDirection: 'row', justifyContent: 'center', marginVertical: 15 },
   durationText: { color: '#3B82F6', fontWeight: 'bold', marginLeft: 8 },
   saveButton: { backgroundColor: '#3B82F6', padding: 18, borderRadius: 16, alignItems: 'center' },
-  saveButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 }
+  saveButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
+  
+  // New Login Styles
+  loginContainer: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', padding: 24 },
+  loginBox: { backgroundColor: '#1E293B', padding: 30, borderRadius: 20, shadowColor: '#000', elevation: 10 },
+  loginTitle: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 30, textAlign: 'center' },
+  loginInput: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 16, fontSize: 16 },
+  loginButton: { backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  loginButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 }
 });
