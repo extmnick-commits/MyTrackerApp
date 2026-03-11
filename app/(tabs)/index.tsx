@@ -1,5 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { deleteField, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { CheckCircle2, Clock, Trash2, TrendingUp, X } from 'lucide-react-native';
+import { CheckCircle2, CheckSquare, Clock, Edit3, LogOut, Printer, Square, Trash2, TrendingUp, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -19,7 +23,6 @@ import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
 import { db } from '../../firebaseConfig';
 
-const MONTHLY_LIMIT = 75;
 // Updated to the new specific profile
 const USER_ID = "estevan209";
 
@@ -28,12 +31,19 @@ export default function WorkTracker() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
 
   // Tracker States
+  const [monthlyLimit, setMonthlyLimit] = useState(75);
   const [hoursWorked, setHoursWorked] = useState(0);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
+  const [weeklyTotalsList, setWeeklyTotalsList] = useState<{ week: string; hrs: number }[]>([]);
   const [workLogs, setWorkLogs] = useState<Record<string, any>>({});
+  
+  // Modals
   const [isModalVisible, setModalVisible] = useState(false);
+  const [isLimitModalVisible, setLimitModalVisible] = useState(false);
+  const [newLimitInput, setNewLimitInput] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   
   // Input states
@@ -47,29 +57,63 @@ export default function WorkTracker() {
 
   const currentMonthYear = new Date().toISOString().slice(0, 7); 
 
+  // Check for saved login and limit on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      const savedLogin = await AsyncStorage.getItem('isLoggedIn');
+      if (savedLogin === 'true') setIsLoggedIn(true);
+
+      const savedLimit = await AsyncStorage.getItem('monthlyLimit');
+      if (savedLimit) setMonthlyLimit(Number(savedLimit));
+    };
+    loadSettings();
+  }, []);
+
   // Real-time listener
-useEffect(() => {
-  // Only start the listener if the user has successfully logged in locally
-  if (!isLoggedIn) return;
+  useEffect(() => {
+    if (!isLoggedIn) return;
 
-  const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
-  const unsubscribe = onSnapshot(docRef, (docSnap) => {
-    const data = docSnap.exists() ? docSnap.data() : {};
-    setWorkLogs(data);
-    
-    const total = Object.values(data).reduce((sum: number, log: any) => {
-      const val = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
-      return sum + val;
-    }, 0);
-    setHoursWorked(total);
+    const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      const data = docSnap.exists() ? docSnap.data() : {};
+      setWorkLogs(data);
+      
+      let total = 0;
+      const weekGroups: Record<string, number> = {};
 
-    // ... (keep the rest of your weekly total logic here)
-  }, (error) => {
-    console.error("Firestore Listener Error:", error);
-  });
+      Object.entries(data).forEach(([dateStr, log]: [string, any]) => {
+        const val = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
+        total += val;
 
-  return () => unsubscribe();
-}, [currentMonthYear, isLoggedIn]); // Add isLoggedIn to the dependency array
+        // Calculate Weekly Breakdowns based on day of the month
+        const dateObj = new Date(dateStr);
+        const weekNum = Math.ceil(dateObj.getDate() / 7);
+        const weekLabel = `Week ${weekNum}`;
+        weekGroups[weekLabel] = (weekGroups[weekLabel] || 0) + val;
+      });
+
+      setHoursWorked(total);
+
+      // Convert week groups to sorted array for display
+      const weeklyArray = Object.keys(weekGroups).map(key => ({
+        week: key,
+        hrs: weekGroups[key]
+      })).sort((a, b) => a.week.localeCompare(b.week));
+      
+      setWeeklyTotalsList(weeklyArray);
+
+      // Example calculation for current week (using Date.now roughly)
+      const currentWeekNum = Math.ceil(new Date().getDate() / 7);
+      const currentWeekLabel = `Week ${currentWeekNum}`;
+      setWeeklyTotal(weekGroups[currentWeekLabel] || 0);
+
+    }, (error) => {
+      console.error("Firestore Listener Error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [currentMonthYear, isLoggedIn]);
+
   // Time calculation logic
   useEffect(() => {
     let inH = parseInt(inHour) || 0;
@@ -89,11 +133,100 @@ useEffect(() => {
     setCalculatedShift(Number(diff.toFixed(2)));
   }, [inHour, inMin, inAmPm, outHour, outMin, outAmPm]);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (loginUser.trim().toLowerCase() === 'estevan209' && loginPass === '1990') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setIsLoggedIn(true);
+      if (rememberMe) {
+        await AsyncStorage.setItem('isLoggedIn', 'true');
+      }
     } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Access Denied', 'Incorrect username or password.');
+    }
+  };
+
+  const handleLogout = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setIsLoggedIn(false);
+    setLoginUser('');
+    setLoginPass('');
+    await AsyncStorage.removeItem('isLoggedIn');
+  };
+
+  const saveCustomLimit = async () => {
+    const parsed = parseInt(newLimitInput);
+    if (!isNaN(parsed) && parsed > 0) {
+      setMonthlyLimit(parsed);
+      await AsyncStorage.setItem('monthlyLimit', parsed.toString());
+      setLimitModalVisible(false);
+      setNewLimitInput('');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      Alert.alert("Invalid Input", "Please enter a valid number.");
+    }
+  };
+
+  const generatePDF = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Sort logs by date
+    const sortedLogs = Object.entries(workLogs).sort((a, b) => a[0].localeCompare(b[0]));
+    
+    const htmlRows = sortedLogs.map(([date, log]: any) => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${date}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${log.in || 'N/A'}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${log.out || 'N/A'}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${log.totalHours} hrs</td>
+      </tr>
+    `).join('');
+
+    const htmlContent = `
+      <html>
+        <head>
+          <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #333; }
+            h1 { color: #0F172A; text-align: center; font-size: 32px; }
+            h2 { color: #3B82F6; text-align: center; margin-bottom: 40px; }
+            .summary-box { background: #F8FAFC; padding: 20px; border-radius: 12px; margin-bottom: 30px; border: 1px solid #E2E8F0; }
+            .summary-text { font-size: 18px; margin: 5px 0; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { background-color: #0F172A; color: white; padding: 12px 10px; text-align: left; }
+          </style>
+        </head>
+        <body>
+          <h1>Work Tracker Report</h1>
+          <h2>Month: ${currentMonthYear}</h2>
+          
+          <div class="summary-box">
+            <p class="summary-text"><strong>Total Hours Worked:</strong> ${hoursWorked.toFixed(1)} hrs</p>
+            <p class="summary-text"><strong>Monthly Goal:</strong> ${monthlyLimit} hrs</p>
+            <p class="summary-text"><strong>Remaining Hours:</strong> ${Math.max(monthlyLimit - hoursWorked, 0).toFixed(1)} hrs</p>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${htmlRows}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    try {
+      const file = await Print.printToFileAsync({ html: htmlContent, base64: false });
+      await Sharing.shareAsync(file.uri, { dialogTitle: 'Share Work Tracker PDF' });
+    } catch (error) {
+      Alert.alert("PDF Error", "Failed to generate or share PDF.");
     }
   };
 
@@ -133,6 +266,7 @@ useEffect(() => {
           out: outTime 
         }
       }, { merge: true });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
       Alert.alert("Firestore Error", error.message);
     }
@@ -145,13 +279,14 @@ useEffect(() => {
       await updateDoc(docRef, {
         [selectedDate]: deleteField()
       });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     } catch (error: any) {
       Alert.alert("Delete Error", error.message);
     }
   };
 
-  const progress = Math.min((hoursWorked / MONTHLY_LIMIT) * 100, 100);
-  const progressColor = hoursWorked > MONTHLY_LIMIT ? "#EF4444" : "#3B82F6";
+  const progress = Math.min((hoursWorked / monthlyLimit) * 100, 100);
+  const progressColor = hoursWorked > monthlyLimit ? "#EF4444" : "#3B82F6";
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
   if (selectedDate) markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: '#3B82F6' };
@@ -180,6 +315,15 @@ useEffect(() => {
             value={loginPass} 
             onChangeText={setLoginPass} 
           />
+
+          <TouchableOpacity 
+            style={styles.rememberRow} 
+            onPress={() => setRememberMe(!rememberMe)}
+            activeOpacity={0.7}
+          >
+            {rememberMe ? <CheckSquare color="#3B82F6" size={24} /> : <Square color="#94A3B8" size={24} />}
+            <Text style={styles.rememberText}>Remember Me</Text>
+          </TouchableOpacity>
           
           <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
             <Text style={styles.loginButtonText}>Access Tracker</Text>
@@ -193,28 +337,50 @@ useEffect(() => {
   return (
     <View style={styles.container}>
       <ScrollView>
-        <View style={styles.header}><Text style={styles.title}>Work Tracker</Text></View>
+        <View style={styles.header}>
+          <Text style={styles.title}>Work Tracker</Text>
+          <View style={styles.headerIcons}>
+            <TouchableOpacity onPress={generatePDF} style={{ marginRight: 20 }}>
+              <Printer color="#F8FAFC" size={28} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogout}>
+              <LogOut color="#EF4444" size={28} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         <View style={styles.dashboardCard}>
           <Svg height="180" width="180" viewBox="0 0 100 100">
             <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
             <Circle cx="50" cy="50" r="45" stroke={progressColor} strokeWidth="8" fill="none"
               strokeDasharray={`${progress * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
           </Svg>
-          <View style={styles.centerText}>
+          <TouchableOpacity 
+            style={styles.centerText} 
+            onPress={() => {
+              setNewLimitInput(monthlyLimit.toString());
+              setLimitModalVisible(true);
+            }}
+          >
             <Text style={styles.hoursText}>{hoursWorked.toFixed(1)}</Text>
-            <Text style={styles.limitText}>/ {MONTHLY_LIMIT} hrs</Text>
-          </View>
+            <View style={styles.limitRow}>
+              <Text style={styles.limitText}>/ {monthlyLimit} hrs</Text>
+              <Edit3 color="#94A3B8" size={12} style={{ marginLeft: 4 }} />
+            </View>
+          </TouchableOpacity>
         </View>
+
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
-            <Clock size={20} color="#94A3B8" /><Text style={styles.statValue}>{(MONTHLY_LIMIT - hoursWorked).toFixed(1)}</Text>
+            <Clock size={20} color="#94A3B8" /><Text style={styles.statValue}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text>
             <Text style={styles.statLabel}>Remaining</Text>
           </View>
           <View style={styles.statBox}>
             <TrendingUp size={20} color="#94A3B8" /><Text style={styles.statValue}>{weeklyTotal.toFixed(1)}</Text>
-            <Text style={styles.statLabel}>Weekly</Text>
+            <Text style={styles.statLabel}>Current Week</Text>
           </View>
         </View>
+
         <View style={styles.calendarContainer}>
           <Calendar 
             theme={{ calendarBackground: '#1E293B', dayTextColor: '#F8FAFC', monthTextColor: '#F8FAFC', todayTextColor: '#3B82F6', arrowColor: '#3B82F6' }}
@@ -222,8 +388,23 @@ useEffect(() => {
             markedDates={markedDates} 
           />
         </View>
+
+        {/* Weekly Breakdown Section */}
+        {weeklyTotalsList.length > 0 && (
+          <View style={styles.weeklyBreakdownContainer}>
+            <Text style={styles.weeklyBreakdownTitle}>Monthly Weekly Breakdown</Text>
+            {weeklyTotalsList.map((item, index) => (
+              <View key={index} style={styles.weekRow}>
+                <Text style={styles.weekLabel}>{item.week}</Text>
+                <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
       </ScrollView>
 
+      {/* SHIFT LOGIC MODAL */}
       <Modal visible={isModalVisible} transparent animationType="slide">
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -258,23 +439,56 @@ useEffect(() => {
           </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {/* MONTHLY LIMIT MODAL */}
+      <Modal visible={isLimitModalVisible} transparent animationType="fade">
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[styles.modalContent, { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Set Monthly Goal</Text>
+              <TouchableOpacity onPress={() => setLimitModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            <TextInput 
+              style={[styles.loginInput, { textAlign: 'center', fontSize: 24, fontWeight: 'bold' }]} 
+              keyboardType="number-pad" 
+              value={newLimitInput} 
+              onChangeText={setNewLimitInput} 
+              placeholder="e.g. 75"
+              placeholderTextColor="#94A3B8"
+            />
+            <TouchableOpacity style={styles.saveButton} onPress={saveCustomLimit}>
+              <Text style={styles.saveButtonText}>Update Goal</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
-  header: { padding: 24, paddingTop: 60 },
+  header: { padding: 24, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerIcons: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
   dashboardCard: { alignItems: 'center', marginVertical: 10, position: 'relative' },
-  centerText: { position: 'absolute', top: 65, alignItems: 'center' },
+  centerText: { position: 'absolute', top: 60, alignItems: 'center' },
   hoursText: { fontSize: 36, fontWeight: 'bold', color: '#F8FAFC' },
+  limitRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   limitText: { fontSize: 14, color: '#94A3B8' },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
   statBox: { backgroundColor: '#1E293B', padding: 16, borderRadius: 16, width: '48%', alignItems: 'center' },
   statValue: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },
   statLabel: { fontSize: 12, color: '#94A3B8' },
-  calendarContainer: { padding: 24, paddingBottom: 60 },
+  calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
+  
+  // Weekly Breakdown Styles
+  weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
+  weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#1E293B', padding: 16, borderRadius: 12, marginBottom: 8 },
+  weekLabel: { color: '#94A3B8', fontSize: 16, fontWeight: '600' },
+  weekHours: { color: '#3B82F6', fontSize: 16, fontWeight: 'bold' },
+
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#1E293B', padding: 30, borderTopLeftRadius: 30, borderTopRightRadius: 30 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
@@ -291,11 +505,13 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: '#3B82F6', padding: 18, borderRadius: 16, alignItems: 'center' },
   saveButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   
-  // New Login Styles
+  // Login Styles
   loginContainer: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', padding: 24 },
   loginBox: { backgroundColor: '#1E293B', padding: 30, borderRadius: 20, shadowColor: '#000', elevation: 10 },
   loginTitle: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 30, textAlign: 'center' },
   loginInput: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 16, fontSize: 16 },
+  rememberRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, paddingLeft: 5 },
+  rememberText: { color: '#94A3B8', fontSize: 16, marginLeft: 10 },
   loginButton: { backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
   loginButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 }
 });
