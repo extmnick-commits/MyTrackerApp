@@ -14,7 +14,7 @@ import {
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 
 // TODO: Replace this with your actual Google Maps API Key
-const GOOGLE_MAPS_API_KEY = 'AIzaSyAz-gl-odw9YBia7R4nJxURd5pWioFdvhc';
+const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || '';
 type Stop = {
   id: string;
   address: string;
