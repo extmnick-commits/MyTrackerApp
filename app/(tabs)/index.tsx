@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
+import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { deleteDoc, deleteField, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { CheckCircle2, CheckSquare, Clock, Edit3, LogOut, Printer, Settings, Square, Trash2, TrendingUp, X } from 'lucide-react-native';
+import { CheckCircle2, CheckSquare, Clock, LogOut, MapPin, Printer, Settings, Square, Trash2, TrendingUp, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -26,23 +27,33 @@ import { db } from '../../firebaseConfig';
 const USER_ID = "estevan209";
 
 export default function WorkTracker() {
+  const navigation = useNavigation();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
 
+  // Limits
   const [monthlyLimit, setMonthlyLimit] = useState(75);
+  const [monthlyMilesLimit, setMonthlyMilesLimit] = useState(500); // New Miles Goal
+
+  // Current Stats
   const [hoursWorked, setHoursWorked] = useState(0);
+  const [monthlyMiles, setMonthlyMiles] = useState(0); // New Miles Total
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [weeklyTotalsList, setWeeklyTotalsList] = useState<{ week: string; hrs: number }[]>([]);
   const [workLogs, setWorkLogs] = useState<Record<string, any>>({});
+  const [mileageHistory, setMileageHistory] = useState<any[]>([]); // Synced from Tab 2
   
+  // Modals
   const [isModalVisible, setModalVisible] = useState(false);
-  const [isLimitModalVisible, setLimitModalVisible] = useState(false);
+  const [limitModalType, setLimitModalType] = useState<'hours' | 'miles' | null>(null);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [newLimitInput, setNewLimitInput] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
+  const [dayMiles, setDayMiles] = useState(0); // Miles for the selected day
   
+  // Shift Times
   const [inHour, setInHour] = useState('09');
   const [inMin, setInMin] = useState('00');
   const [inAmPm, setInAmPm] = useState('AM');
@@ -53,11 +64,8 @@ export default function WorkTracker() {
 
   const now = new Date();
   const currentMonthYear = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
-  
-  // Track the month currently visible on the calendar
   const [viewedMonthYear, setViewedMonthYear] = useState(currentMonthYear);
 
-  // Helper to get formatted month (e.g., "March 2026")
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const [yearStr, monthStr] = viewedMonthYear.split('-');
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
@@ -68,11 +76,36 @@ export default function WorkTracker() {
       if (savedLogin === 'true') setIsLoggedIn(true);
       const savedLimit = await AsyncStorage.getItem('monthlyLimit');
       if (savedLimit) setMonthlyLimit(Number(savedLimit));
+      const savedMilesLimit = await AsyncStorage.getItem('monthlyMilesLimit');
+      if (savedMilesLimit) setMonthlyMilesLimit(Number(savedMilesLimit));
     };
     loadSettings();
   }, []);
 
-  // Fetch data dynamically based on the viewed month
+  // Listen for mileage history updates from Tab Two whenever this screen comes into focus
+  useEffect(() => {
+    const loadMileage = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('@mileage_history');
+        if (stored) setMileageHistory(JSON.parse(stored));
+      } catch (error) { console.error('Failed to load mileage', error); }
+    };
+    
+    loadMileage(); // Load initially
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadMileage(); // Reload every time tab is opened
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // Calculate monthly miles dynamically based on the viewed calendar month
+  useEffect(() => {
+    const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
+    const totalM = tripsThisMonth.reduce((sum, t) => sum + t.miles, 0);
+    setMonthlyMiles(totalM);
+  }, [mileageHistory, viewedMonthYear]);
+
+  // Fetch Firebase Data
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -103,15 +136,13 @@ export default function WorkTracker() {
       
       setWeeklyTotalsList(weeklyArray);
 
-      // Only calculate current week if looking at the actual current month
       if (viewedMonthYear === currentMonthYear) {
         const currentWeekNum = Math.ceil(new Date().getDate() / 7);
         const currentWeekLabel = `Week ${currentWeekNum}`;
         setWeeklyTotal(weekGroups[currentWeekLabel] || 0);
       } else {
-        setWeeklyTotal(0); // If looking at past/future month, current week is 0
+        setWeeklyTotal(0); 
       }
-
     });
     return () => unsubscribe();
   }, [viewedMonthYear, isLoggedIn]);
@@ -154,15 +185,27 @@ export default function WorkTracker() {
   const saveCustomLimit = async () => {
     const parsed = parseInt(newLimitInput);
     if (!isNaN(parsed) && parsed > 0) {
-      setMonthlyLimit(parsed);
-      await AsyncStorage.setItem('monthlyLimit', parsed.toString());
-      setLimitModalVisible(false);
+      if (limitModalType === 'hours') {
+        setMonthlyLimit(parsed);
+        await AsyncStorage.setItem('monthlyLimit', parsed.toString());
+      } else {
+        setMonthlyMilesLimit(parsed);
+        await AsyncStorage.setItem('monthlyMilesLimit', parsed.toString());
+      }
+      setLimitModalType(null);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
 
   const generatePDF = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    // Map miles by date for the PDF report
+    const milesPerDay: Record<string, number> = {};
+    mileageHistory.forEach(trip => {
+      milesPerDay[trip.date] = (milesPerDay[trip.date] || 0) + trip.miles;
+    });
+
     const sortedLogs = Object.entries(workLogs).sort((a, b) => a[0].localeCompare(b[0]));
     const htmlRows = sortedLogs.map(([date, log]: any) => `
       <tr>
@@ -170,6 +213,7 @@ export default function WorkTracker() {
         <td style="padding: 10px; border-bottom: 1px solid #ddd;">${log.in || 'N/A'}</td>
         <td style="padding: 10px; border-bottom: 1px solid #ddd;">${log.out || 'N/A'}</td>
         <td style="padding: 10px; border-bottom: 1px solid #ddd; font-weight: bold;">${log.totalHours} hrs</td>
+        <td style="padding: 10px; border-bottom: 1px solid #ddd; color: #3B82F6; font-weight: bold;">${(milesPerDay[date] || log.miles || 0).toFixed(1)} mi</td>
       </tr>
     `).join('');
 
@@ -179,8 +223,8 @@ export default function WorkTracker() {
           <h1 style="text-align: center;">Work Tracker Report</h1>
           <h2 style="color: #3B82F6; text-align: center;">Month: ${displayMonth}</h2>
           <div style="background: #F8FAFC; padding: 20px; border-radius: 12px; margin-bottom: 30px; border: 1px solid #E2E8F0;">
-            <p><strong>Total Hours Worked:</strong> ${hoursWorked.toFixed(1)} hrs</p>
-            <p><strong>Monthly Goal:</strong> ${monthlyLimit} hrs</p>
+            <p><strong>Total Hours Worked:</strong> ${hoursWorked.toFixed(1)} / ${monthlyLimit} hrs</p>
+            <p><strong>Total Miles Driven:</strong> ${monthlyMiles.toFixed(1)} / ${monthlyMilesLimit} mi</p>
           </div>
           <table style="width: 100%; border-collapse: collapse;">
             <thead>
@@ -188,7 +232,8 @@ export default function WorkTracker() {
                 <th style="padding: 12px; text-align: left;">Date</th>
                 <th style="padding: 12px; text-align: left;">In</th>
                 <th style="padding: 12px; text-align: left;">Out</th>
-                <th style="padding: 12px; text-align: left;">Total</th>
+                <th style="padding: 12px; text-align: left;">Total Hrs</th>
+                <th style="padding: 12px; text-align: left;">Miles</th>
               </tr>
             </thead>
             <tbody>${htmlRows}</tbody>
@@ -207,6 +252,12 @@ export default function WorkTracker() {
 
   const handleDayPress = (day: { dateString: string }) => {
     setSelectedDate(day.dateString);
+    
+    // Sync miles for the exact day selected
+    const tripsThisDay = mileageHistory.filter(t => t.date === day.dateString);
+    const dayM = tripsThisDay.reduce((sum, t) => sum + t.miles, 0);
+    setDayMiles(dayM);
+
     const log = workLogs[day.dateString];
     if (log && typeof log === 'object' && log.in && log.out) {
       setInHour(log.in.split(':')[0]);
@@ -225,14 +276,15 @@ export default function WorkTracker() {
   const saveHours = async () => {
     setModalVisible(false); 
     try {
-      // Save directly to the exact month of the selected day
       const shiftMonthYear = selectedDate.slice(0, 7);
       const docRef = doc(db, 'users', USER_ID, 'workLogs', shiftMonthYear);
       
       const inTime = `${inHour.padStart(2, '0')}:${inMin.padStart(2, '0')} ${inAmPm}`;
       const outTime = `${outHour.padStart(2, '0')}:${outMin.padStart(2, '0')} ${outAmPm}`;
+      
+      // Push miles to Firebase together with the hours so data stays fully linked!
       await setDoc(docRef, {
-        [selectedDate]: { totalHours: calculatedShift, in: inTime, out: outTime }
+        [selectedDate]: { totalHours: calculatedShift, in: inTime, out: outTime, miles: dayMiles }
       }, { merge: true });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
@@ -253,7 +305,7 @@ export default function WorkTracker() {
   };
 
   const promptWipeMonth = () => {
-    setSettingsVisible(false); // Close settings menu first
+    setSettingsVisible(false); 
     Alert.alert(
       "Wipe Calendar",
       `Are you sure you want to delete ALL shifts for ${displayMonth}? This cannot be undone.`,
@@ -276,8 +328,12 @@ export default function WorkTracker() {
     );
   };
 
-  const progress = Math.min((hoursWorked / monthlyLimit) * 100, 100);
-  const progressColor = hoursWorked > monthlyLimit ? "#EF4444" : "#3B82F6";
+  const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
+  const colorHours = hoursWorked > monthlyLimit ? "#EF4444" : "#3B82F6";
+  
+  const progressMiles = Math.min((monthlyMiles / monthlyMilesLimit) * 100, 100);
+  const colorMiles = monthlyMiles > monthlyMilesLimit ? "#EF4444" : "#0a7ea4";
+
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
   if (selectedDate) markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: '#3B82F6' };
@@ -306,27 +362,45 @@ export default function WorkTracker() {
           <Text style={styles.title}>Work Tracker</Text>
           <View style={styles.headerIcons}>
             <TouchableOpacity onPress={generatePDF} style={{ marginRight: 20 }}><Printer color="#F8FAFC" size={28} /></TouchableOpacity>
-            {/* Swapped Trash with Settings Menu */}
             <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{ marginRight: 20 }}><Settings color="#94A3B8" size={28} /></TouchableOpacity>
             <TouchableOpacity onPress={handleLogout}><LogOut color="#EF4444" size={28} /></TouchableOpacity>
           </View>
         </View>
         
-        <View style={styles.dashboardCard}>
-          <Svg height="180" width="180" viewBox="0 0 100 100">
-            <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
-            <Circle cx="50" cy="50" r="45" stroke={progressColor} strokeWidth="8" fill="none"
-              strokeDasharray={`${progress * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
-          </Svg>
-          <TouchableOpacity style={styles.centerText} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalVisible(true); }}>
-            <Text style={styles.hoursText}>{hoursWorked.toFixed(1)}</Text>
-            <View style={styles.limitRow}><Text style={styles.limitText}>/ {monthlyLimit} hrs</Text><Edit3 color="#94A3B8" size={12} style={{ marginLeft: 4 }} /></View>
+        {/* Dual Dashboards Side-by-Side */}
+        <View style={styles.dashboardRow}>
+          {/* Hours Dashboard */}
+          <TouchableOpacity style={styles.dashboardCardHalf} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
+            <Svg height="140" width="140" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke={colorHours} strokeWidth="8" fill="none"
+                strokeDasharray={`${progressHours * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+            </Svg>
+            <View style={styles.centerTextSmall}>
+              <Text style={styles.hoursTextSmall}>{hoursWorked.toFixed(1)}</Text>
+              <Text style={styles.limitTextSmall}>/ {monthlyLimit} h</Text>
+            </View>
+            <Text style={styles.chartLabel}>Hours</Text>
+          </TouchableOpacity>
+
+          {/* Miles Dashboard */}
+          <TouchableOpacity style={styles.dashboardCardHalf} onPress={() => { setNewLimitInput(monthlyMilesLimit.toString()); setLimitModalType('miles'); }}>
+            <Svg height="140" width="140" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke={colorMiles} strokeWidth="8" fill="none"
+                strokeDasharray={`${progressMiles * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+            </Svg>
+            <View style={styles.centerTextSmall}>
+              <Text style={styles.hoursTextSmall}>{monthlyMiles.toFixed(1)}</Text>
+              <Text style={styles.limitTextSmall}>/ {monthlyMilesLimit} mi</Text>
+            </View>
+            <Text style={[styles.chartLabel, { color: '#0a7ea4' }]}>Miles</Text>
           </TouchableOpacity>
         </View>
         
         <View style={styles.statsRow}>
-          <View style={styles.statBox}><Clock size={20} color="#94A3B8" /><Text style={styles.statValue}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text><Text style={styles.statLabel}>Remaining</Text></View>
-          <View style={styles.statBox}><TrendingUp size={20} color="#94A3B8" /><Text style={styles.statValue}>{weeklyTotal.toFixed(1)}</Text><Text style={styles.statLabel}>Current Week</Text></View>
+          <View style={styles.statBox}><Clock size={20} color="#94A3B8" /><Text style={styles.statValue}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text><Text style={styles.statLabel}>Remaining Hrs</Text></View>
+          <View style={styles.statBox}><TrendingUp size={20} color="#94A3B8" /><Text style={styles.statValue}>{weeklyTotal.toFixed(1)}</Text><Text style={styles.statLabel}>Week Hrs</Text></View>
         </View>
         
         <View style={styles.calendarContainer}>
@@ -334,14 +408,12 @@ export default function WorkTracker() {
             theme={{ calendarBackground: '#1E293B', dayTextColor: '#F8FAFC', monthTextColor: '#F8FAFC', todayTextColor: '#3B82F6', arrowColor: '#3B82F6' }}
             onDayPress={handleDayPress} 
             markedDates={markedDates}
-            // Update the viewed month when the user swipes
             onMonthChange={(month) => setViewedMonthYear(month.dateString.slice(0, 7))}
           />
         </View>
 
         {weeklyTotalsList.length > 0 && (
           <View style={styles.weeklyBreakdownContainer}>
-            {/* Added Month Title to the Breakdown */}
             <Text style={styles.weeklyBreakdownTitle}>{displayMonth} Breakdown</Text>
             {weeklyTotalsList.map((item, index) => (
               <View key={index} style={styles.weekRow}><Text style={styles.weekLabel}>{item.week}</Text><Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text></View>
@@ -358,18 +430,14 @@ export default function WorkTracker() {
               <Text style={styles.modalTitle}>App Settings</Text>
               <TouchableOpacity onPress={() => setSettingsVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
             </View>
-            
-            <TouchableOpacity 
-              style={[styles.saveButton, { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#EF4444' }]} 
-              onPress={promptWipeMonth}
-            >
+            <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#EF4444' }]} onPress={promptWipeMonth}>
               <Text style={[styles.saveButtonText, { color: '#EF4444' }]}>Wipe {displayMonth} Data</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* Shift Logic Modal */}
+      {/* Shift & Miles Logic Modal */}
       <Modal visible={isModalVisible} transparent animationType="slide">
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -393,19 +461,33 @@ export default function WorkTracker() {
                   </View>
                 </View>
               ))}
-              <View style={styles.durationContainer}><CheckCircle2 color="#3B82F6" size={20} /><Text style={styles.durationText}>{calculatedShift} hrs</Text></View>
+              
+              {/* Linked Sync Visual */}
+              <View style={styles.durationContainer}>
+                <CheckCircle2 color="#3B82F6" size={20} />
+                <Text style={styles.durationText}>{calculatedShift} hrs</Text>
+                
+                <View style={{ width: 25 }} /> 
+                
+                <MapPin color="#0a7ea4" size={20} />
+                <Text style={[styles.durationText, { color: '#0a7ea4' }]}>{dayMiles.toFixed(1)} mi</Text>
+              </View>
+
               <TouchableOpacity style={styles.saveButton} onPress={saveHours}><Text style={styles.saveButtonText}>Save Shift</Text></TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Limit Modal */}
-      <Modal visible={isLimitModalVisible} transparent animationType="fade">
+      {/* Goal Setter Modal */}
+      <Modal visible={limitModalType !== null} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
-            <View style={styles.modalHeader}><Text style={styles.modalTitle}>Set Monthly Goal</Text><TouchableOpacity onPress={() => setLimitModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity></View>
-            <TextInput style={[styles.loginInput, { textAlign: 'center', fontSize: 24 }]} keyboardType="number-pad" value={newLimitInput} onChangeText={setNewLimitInput} placeholder="e.g. 75" />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Set Monthly {limitModalType === 'hours' ? 'Hours' : 'Miles'} Goal</Text>
+              <TouchableOpacity onPress={() => setLimitModalType(null)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            <TextInput style={[styles.loginInput, { textAlign: 'center', fontSize: 24 }]} keyboardType="number-pad" value={newLimitInput} onChangeText={setNewLimitInput} placeholder="Enter number..." />
             <TouchableOpacity style={styles.saveButton} onPress={saveCustomLimit}><Text style={styles.saveButtonText}>Update Goal</Text></TouchableOpacity>
           </View>
         </View>
@@ -419,11 +501,12 @@ const styles = StyleSheet.create({
   header: { padding: 24, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
-  dashboardCard: { alignItems: 'center', marginVertical: 10, position: 'relative' },
-  centerText: { position: 'absolute', top: 60, alignItems: 'center' },
-  hoursText: { fontSize: 36, fontWeight: 'bold', color: '#F8FAFC' },
-  limitRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  limitText: { fontSize: 14, color: '#94A3B8' },
+  dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
+  dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
+  centerTextSmall: { position: 'absolute', top: 40, alignItems: 'center' },
+  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
+  limitTextSmall: { fontSize: 12, color: '#94A3B8' },
+  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 16 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
   statBox: { backgroundColor: '#1E293B', padding: 16, borderRadius: 16, width: '48%', alignItems: 'center' },
   statValue: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },
@@ -445,8 +528,8 @@ const styles = StyleSheet.create({
   colon: { color: '#94A3B8', marginHorizontal: 5, fontWeight: 'bold' },
   amPmToggle: { backgroundColor: '#3B82F6', padding: 10, borderRadius: 8, marginLeft: 10 },
   amPmText: { color: '#FFF', fontWeight: 'bold' },
-  durationContainer: { flexDirection: 'row', justifyContent: 'center', marginVertical: 15 },
-  durationText: { color: '#3B82F6', fontWeight: 'bold', marginLeft: 8 },
+  durationContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginVertical: 15 },
+  durationText: { fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
   saveButton: { backgroundColor: '#3B82F6', padding: 18, borderRadius: 16, alignItems: 'center' },
   saveButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   loginContainer: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', padding: 24 },
