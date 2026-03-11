@@ -48,33 +48,28 @@ export default function WorkTracker() {
   const currentMonthYear = new Date().toISOString().slice(0, 7); 
 
   // Real-time listener
-  useEffect(() => {
-    const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      const data = docSnap.exists() ? docSnap.data() : {};
-      setWorkLogs(data);
-      
-      const total = Object.values(data).reduce((sum: number, log: any) => {
-        const val = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
-        return sum + val;
-      }, 0);
-      setHoursWorked(total);
+useEffect(() => {
+  // Only start the listener if the user has successfully logged in locally
+  if (!isLoggedIn) return;
 
-      const today = new Date();
-      let weeklySum = 0;
-      for(let i = 0; i < 7; i++) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        if(data[dateStr]) {
-          weeklySum += typeof data[dateStr] === 'object' ? data[dateStr].totalHours : Number(data[dateStr]);
-        }
-      }
-      setWeeklyTotal(weeklySum);
-    });
-    return () => unsubscribe();
-  }, [currentMonthYear]);
+  const docRef = doc(db, 'users', USER_ID, 'workLogs', currentMonthYear);
+  const unsubscribe = onSnapshot(docRef, (docSnap) => {
+    const data = docSnap.exists() ? docSnap.data() : {};
+    setWorkLogs(data);
+    
+    const total = Object.values(data).reduce((sum: number, log: any) => {
+      const val = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
+      return sum + val;
+    }, 0);
+    setHoursWorked(total);
 
+    // ... (keep the rest of your weekly total logic here)
+  }, (error) => {
+    console.error("Firestore Listener Error:", error);
+  });
+
+  return () => unsubscribe();
+}, [currentMonthYear, isLoggedIn]); // Add isLoggedIn to the dependency array
   // Time calculation logic
   useEffect(() => {
     let inH = parseInt(inHour) || 0;
