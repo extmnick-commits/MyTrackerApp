@@ -1,10 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
-import { deleteDoc, deleteField, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
 import { CheckCircle2, ChevronRight, Clock, Edit2, LogOut, MapPin, Printer, Settings, Trash2, TrendingUp, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
@@ -94,29 +93,26 @@ export default function WorkTracker() {
   }, [user]);
 
   useEffect(() => {
-    const loadMileage = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('@mileage_history');
-        if (stored) {
-          const data = JSON.parse(stored);
-          let allTrips: Trip[] = [];
-          
-          if (Array.isArray(data)) { // Handle old flat array format
-            allTrips = data as Trip[];
-          } else if (typeof data === 'object' && data !== null) { // Handle new monthly object format
-            allTrips = Object.values(data as Record<string, Trip[]>).flat();
-          }
-          setMileageHistory(allTrips);
-        }
-      } catch (error) { console.error('Failed to load mileage from storage', error); }
-    };
-    
-    loadMileage(); 
-    const unsubscribe = navigation.addListener('focus', () => {
-      loadMileage(); 
+    if (!user) {
+      setMileageHistory([]);
+      return;
+    }
+
+    const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
+    const q = query(tripsCollectionRef);
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const allTrips: Trip[] = [];
+      snapshot.forEach(doc => {
+        allTrips.push({ id: doc.id, ...doc.data() } as Trip);
+      });
+      // Sort trips by date to ensure consistent ordering
+      allTrips.sort((a, b) => b.date.localeCompare(a.date));
+      setMileageHistory(allTrips);
     });
-    return unsubscribe;
-  }, [navigation]);
+
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));

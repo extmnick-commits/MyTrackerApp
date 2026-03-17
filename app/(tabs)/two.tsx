@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { ArrowDown, ArrowUp, Calculator, Calendar as CalendarIcon, ChevronLeft, ChevronRight, History, Map, MapPin, Plus, Save, Search, Trash2, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -78,17 +77,6 @@ export default function TabTwoScreen() {
 
     return () => unsubscribe();
   }, [user]);
-
-  // Sync Firestore data to AsyncStorage for the other tab to use
-  useEffect(() => {
-    // Check if there's data to save, to avoid writing an empty object on initial load
-    if (Object.keys(historyByMonth).length > 0) {
-      AsyncStorage.setItem('@mileage_history', JSON.stringify(historyByMonth));
-    } else if (user) { // If user is logged in but has no history, clear storage
-      // This handles the case where the last trip of the last month is deleted
-      AsyncStorage.removeItem('@mileage_history');
-    }
-  }, [historyByMonth, user]);
 
   const addStop = () => {
     setStops([...stops, { id: `stop_${Date.now()}`, address: '' }]);
@@ -235,15 +223,35 @@ export default function TabTwoScreen() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
+          // Find the trip to be deleted to get its month for an optimistic update
+          const tripToDelete = Object.values(historyByMonth).flat().find(t => t.id === id);
+
+          // Optimistically update the UI state immediately for better user experience
+          if (tripToDelete) {
+            const month = tripToDelete.date.slice(0, 7);
+            setHistoryByMonth(prev => {
+              const updatedMonthTrips = prev[month]?.filter(t => t.id !== id);
+              const newHistory = { ...prev };
+              if (updatedMonthTrips && updatedMonthTrips.length > 0) {
+                newHistory[month] = updatedMonthTrips;
+              } else {
+                // Remove the month if it has no trips left
+                delete newHistory[month];
+              }
+              return newHistory;
+            });
+          }
+
           try {
             const tripRef = doc(db, 'users', user.uid, 'mileage', id);
-            await deleteDoc(tripRef);
+            await deleteDoc(tripRef); // This triggers onSnapshot, which will re-sync from Firestore, confirming the change
             if (activeEditTripId === id) {
               cancelRouteEdit();
             }
           } catch (error) {
-            Alert.alert('Delete Error', 'Failed to delete trip.');
+            Alert.alert('Delete Error', 'Failed to delete trip from the database. The list will refresh to undo the change.');
             console.error("Error deleting trip:", error);
+            // The onSnapshot listener will eventually correct the state if the delete fails, reverting the optimistic update.
           }
         }
       }
