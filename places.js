@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
   if (!GOOGLE_MAPS_API_KEY) {
     return res.status(500).json({ error: 'API key not configured on server' });

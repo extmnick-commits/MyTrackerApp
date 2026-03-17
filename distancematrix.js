@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
