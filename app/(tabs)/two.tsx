@@ -221,7 +221,8 @@ export default function TabTwoScreen() {
     if (!user) return;
     Alert.alert('Delete Trip', 'Are you sure you want to permanently delete this trip?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', async () => {
+      {
+        text: 'Delete', style: 'destructive', onPress: async () => {
           try {
             const tripRef = doc(db, 'users', user.uid, 'mileage', id);
             await deleteDoc(tripRef);
