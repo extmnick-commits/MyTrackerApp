@@ -6,7 +6,8 @@ export default async function handler(req, res) {
   }
 
   if (!GOOGLE_MAPS_API_KEY) {
-    return res.status(500).json({ error: 'API key not configured on server' });
+    console.error("SERVER ERROR: GOOGLE_MAPS_API_KEY environment variable not found.");
+    return res.status(500).json({ error: 'API key not configured on server.' });
   }
 
   try {
@@ -19,6 +20,11 @@ export default async function handler(req, res) {
     const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origins)}&destinations=${encodeURIComponent(destinations)}&units=imperial&key=${GOOGLE_MAPS_API_KEY}`;
     const googleResponse = await fetch(url);
     const data = await googleResponse.json();
+
+    // Add server-side logging to see what Google returns
+    if (data.status !== 'OK') {
+      console.log(`Google Distance Matrix API returned status: ${data.status}. Error: ${data.error_message || 'No error message.'}`);
+    }
 
     if (!googleResponse.ok) return res.status(googleResponse.status).json(data);
 
