@@ -22,7 +22,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.extmnick.MyTrackerApp"
     },
     "web": {
       "bundler": "metro",
@@ -35,6 +36,19 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e56e0164-4305-40b7-b92f-a74b840b3f0b"
+      }
+    },
+    "owner": "extmnick",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e56e0164-4305-40b7-b92f-a74b840b3f0b"
     }
   }
 }
