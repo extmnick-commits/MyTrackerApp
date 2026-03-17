@@ -242,7 +242,7 @@ export default function TabTwoScreen() {
     if (!user) return;
     Alert.alert(`Clear ${displayMonth}?`, `Are you sure you want to delete all ${tripsForViewedMonth.length} trips for this month? This cannot be undone.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear Month', style: 'destructive', async () => {
+      { text: 'Clear Month', style: 'destructive', onPress: async () => {
           const batch = writeBatch(db);
           const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
           const q = query(tripsCollectionRef, where('date', '>=', viewedMonth), where('date', '<', `${viewedMonth}-32`));
