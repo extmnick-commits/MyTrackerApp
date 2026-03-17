@@ -10,7 +10,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -679,41 +678,44 @@ export default function WorkTracker() {
       </Modal>
 
       <Modal visible={isModalVisible} transparent animationType="slide">
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Shift: {selectedDate}</Text>
-                <View style={{ flexDirection: 'row' }}>
-                  {workLogs[selectedDate] && <TouchableOpacity onPress={deleteShift} style={{ marginRight: 20 }}><Trash2 color="#EF4444" size={24} /></TouchableOpacity>}
-                  <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
-                </View>
-              </View>
-              {[ {l: 'Clock In', h: inHour, setH: setInHour, m: inMin, setM: setInMin, ap: inAmPm, t: 'in' as const},
-                 {l: 'Clock Out', h: outHour, setH: setOutHour, m: outMin, setM: setOutMin, ap: outAmPm, t: 'out' as const}
-              ].map((row, i) => (
-                <View key={i} style={styles.timeRow}><Text style={styles.timeLabel}>{row.l}</Text>
-                  <View style={styles.timeInputGroup}>
-                    <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.h} onChangeText={row.setH} selectTextOnFocus onFocus={Platform.OS === 'web' ? (e: any) => e.target.select() : undefined} maxLength={2} />
-                    <Text style={styles.colon}>:</Text>
-                    <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.m} onChangeText={row.setM} selectTextOnFocus onFocus={Platform.OS === 'web' ? (e: any) => e.target.select() : undefined} maxLength={2} />
-                    <TouchableOpacity style={styles.amPmToggle} onPress={() => { if(row.t==='in') setInAmPm(p=>p==='AM'?'PM':'AM'); else setOutAmPm(p=>p==='AM'?'PM':'AM'); }}><Text style={styles.amPmText}>{row.ap}</Text></TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-              
-              <View style={styles.durationContainer}>
-                <CheckCircle2 color="#3B82F6" size={20} />
-                <Text style={styles.durationText}>{calculatedShift} hrs</Text>
-                <View style={{ width: 25 }} /> 
-                <MapPin color="#0a7ea4" size={20} />
-                <Text style={[styles.durationText, { color: '#0a7ea4' }]}>{dayMiles.toFixed(1)} mi</Text>
-              </View>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          {/* This TouchableWithoutFeedback allows tapping the background to close the modal, without interfering with inputs */}
+          <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
+            <View style={{ flex: 1 }} />
+          </TouchableWithoutFeedback>
 
-              <TouchableOpacity style={styles.saveButton} onPress={saveHours}><Text style={styles.saveButtonText}>Save Shift</Text></TouchableOpacity>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Shift: {selectedDate}</Text>
+              <View style={{ flexDirection: 'row' }}>
+                {workLogs[selectedDate] && <TouchableOpacity onPress={deleteShift} style={{ marginRight: 20 }}><Trash2 color="#EF4444" size={24} /></TouchableOpacity>}
+                <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+              </View>
             </View>
-          </KeyboardAvoidingView>
-        </TouchableWithoutFeedback>
+            {[ {l: 'Clock In', h: inHour, setH: setInHour, m: inMin, setM: setInMin, ap: inAmPm, t: 'in' as const},
+                {l: 'Clock Out', h: outHour, setH: setOutHour, m: outMin, setM: setOutMin, ap: outAmPm, t: 'out' as const}
+            ].map((row, i) => (
+              <View key={i} style={styles.timeRow}><Text style={styles.timeLabel}>{row.l}</Text>
+                <View style={styles.timeInputGroup}>
+                  <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.h} onChangeText={row.setH} selectTextOnFocus onFocus={Platform.OS === 'web' ? (e: any) => e.target.select() : undefined} maxLength={2} />
+                  <Text style={styles.colon}>:</Text>
+                  <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.m} onChangeText={row.setM} selectTextOnFocus onFocus={Platform.OS === 'web' ? (e: any) => e.target.select() : undefined} maxLength={2} />
+                  <TouchableOpacity style={styles.amPmToggle} onPress={() => { if(row.t==='in') setInAmPm(p=>p==='AM'?'PM':'AM'); else setOutAmPm(p=>p==='AM'?'PM':'AM'); }}><Text style={styles.amPmText}>{row.ap}</Text></TouchableOpacity>
+                </View>
+              </View>
+            ))}
+            
+            <View style={styles.durationContainer}>
+              <CheckCircle2 color="#3B82F6" size={20} />
+              <Text style={styles.durationText}>{calculatedShift} hrs</Text>
+              <View style={{ width: 25 }} /> 
+              <MapPin color="#0a7ea4" size={20} />
+              <Text style={[styles.durationText, { color: '#0a7ea4' }]}>{dayMiles.toFixed(1)} mi</Text>
+            </View>
+
+            <TouchableOpacity style={styles.saveButton} onPress={saveHours}><Text style={styles.saveButtonText}>Save Shift</Text></TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={limitModalType !== null} transparent animationType="fade">
@@ -748,19 +750,19 @@ const styles = StyleSheet.create({
   dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
   centerTextSmall: { position: 'absolute', top: 40, alignItems: 'center' },
-  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
+  hoursTextSmall: { fontSize: 30, fontWeight: 'bold', color: '#F8FAFC' },
   limitTextSmall: { fontSize: 12, color: '#94A3B8' },
   chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 16 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
   statBox: { backgroundColor: '#1E293B', padding: 16, borderRadius: 16, width: '48%', alignItems: 'center' },
-  statValue: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },
+  statValue: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },
   statLabel: { fontSize: 12, color: '#94A3B8' },
   calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
   weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
   weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
   weekRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1E293B', padding: 16, borderRadius: 12, marginBottom: 8 },
   weekLabel: { color: '#94A3B8', fontSize: 16, fontWeight: '600' },
-  weekHours: { color: '#3B82F6', fontSize: 16, fontWeight: 'bold' },
+  weekHours: { color: '#3B82F6', fontSize: 17, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#1E293B', padding: 30, borderTopLeftRadius: 30, borderTopRightRadius: 30 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
@@ -768,12 +770,12 @@ const styles = StyleSheet.create({
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, backgroundColor: '#0F172A', padding: 12, borderRadius: 12 },
   timeLabel: { color: '#94A3B8', fontWeight: '600' },
   timeInputGroup: { flexDirection: 'row', alignItems: 'center' },
-  timeInput: { backgroundColor: '#1E293B', color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', padding: 8, borderRadius: 8, textAlign: 'center', width: 45 },
+  timeInput: { backgroundColor: '#1E293B', color: '#F8FAFC', fontSize: 20, fontWeight: 'bold', padding: 8, borderRadius: 8, textAlign: 'center', width: 50 },
   colon: { color: '#94A3B8', marginHorizontal: 5, fontWeight: 'bold' },
   amPmToggle: { backgroundColor: '#3B82F6', padding: 10, borderRadius: 8, marginLeft: 10 },
   amPmText: { color: '#FFF', fontWeight: 'bold' },
   durationContainer: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginVertical: 15 },
-  durationText: { color: '#F8FAFC', fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
+  durationText: { color: '#F8FAFC', fontWeight: 'bold', marginLeft: 8, fontSize: 18 },
   saveButton: { backgroundColor: '#3B82F6', padding: 18, borderRadius: 16, alignItems: 'center' },
   saveButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   loginContainer: { flex: 1, backgroundColor: '#0F172A', justifyContent: 'center', padding: 24 },
@@ -799,7 +801,7 @@ const styles = StyleSheet.create({
   timelineCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   timelineDate: { fontWeight: 'bold', fontSize: 18, color: '#F8FAFC' },
   timelineBadge: { backgroundColor: '#0a7ea420', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  timelineBadgeText: { color: '#38bdf8', fontWeight: 'bold', fontSize: 14 },
+  timelineBadgeText: { color: '#38bdf8', fontWeight: 'bold', fontSize: 15 },
   
   timelineContainer: { paddingLeft: 5 },
   timelineRow: { flexDirection: 'row', minHeight: 45 },
