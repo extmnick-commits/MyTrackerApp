@@ -128,7 +128,7 @@ export default function WorkTracker() {
   }, [viewedMonthYear, user]);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!user) return;
 
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
     const allDates = new Set([...Object.keys(workLogs), ...tripsThisMonth.map(t => t.date)]);
