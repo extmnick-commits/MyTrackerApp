@@ -457,7 +457,19 @@ export default function TabTwoScreen() {
                 </View>
                 <FlatList
                   data={autocompleteSuggestions}
-                  keyExtractor={(item) => item.place_id}
+                  keyExtractor={(item, index) => item.place_id || index.toString()}
+                  keyboardShouldPersistTaps="handled"
+                  contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+                  ListEmptyComponent={
+                    searchQuery.length > 2 ? (
+                      <View style={{ padding: 20, alignItems: 'center' }}>
+                        <Text style={{ color: '#6b7280', fontSize: 15 }}>No results found.</Text>
+                        <Text style={{ color: '#9ca3af', fontSize: 12, marginTop: 10, textAlign: 'center' }}>
+                          (If this persists, please verify your Google Maps API key in Vercel Environment Variables and ensure you clicked "Redeploy")
+                        </Text>
+                      </View>
+                    ) : null
+                  }
                   renderItem={({ item }) => (
                     <TouchableOpacity
                       style={styles.webSuggestionRow}
@@ -477,10 +489,10 @@ export default function TabTwoScreen() {
               fetchDetails={true}
               keyboardShouldPersistTaps="handled"
               styles={{
-                container: { flex: 1 },
+                container: { flex: 1, zIndex: 10 },
                 textInputContainer: { paddingHorizontal: 15, paddingBottom: 10 },
                 textInput: { backgroundColor: '#f3f4f6', height: 45, borderRadius: 8, paddingHorizontal: 15, fontSize: 16 },
-                listView: { flex: 1 },
+                listView: { flex: 1, zIndex: 1000, elevation: 1000 },
                 row: { padding: 15 },
                 separator: { height: 1, backgroundColor: '#e5e7eb' },
                 description: { fontSize: 15, color: '#1f2937' },
