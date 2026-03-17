@@ -22,9 +22,10 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
-import { db } from '../../firebaseConfig';
-
-const USER_ID = "estevan209";
+import { useAuth } from '../../context/AuthContext';
+import { auth, db } from '../../firebaseConfig';
+import { signOut } from 'firebase/auth';
+import { collection } from 'firebase/firestore';
 
 
 
@@ -33,11 +34,9 @@ type Stop = { id: string; address: string; };
 type Trip = { id: string; date: string; miles: number; stopsCount: number; stops?: Stop[] };
 
 export default function WorkTracker() {
+  const { user } = useAuth();
   const navigation = useNavigation();
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loginUser, setLoginUser] = useState('');
-  const [loginPass, setLoginPass] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+
 
   // Limits
   const [monthlyLimit, setMonthlyLimit] = useState(75);
@@ -82,42 +81,21 @@ export default function WorkTracker() {
   const [yearStr, monthStr] = viewedMonthYear.split('-');
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
 
-  useEffect(() => {
-    const loadSettings = async () => {
-      const savedLogin = await AsyncStorage.getItem('isLoggedIn');
-      if (savedLogin === 'true') setIsLoggedIn(true);
-      const savedLimit = await AsyncStorage.getItem('monthlyLimit');
-      if (savedLimit) setMonthlyLimit(Number(savedLimit));
-      const savedMilesLimit = await AsyncStorage.getItem('monthlyMilesLimit');
-      if (savedMilesLimit) setMonthlyMilesLimit(Number(savedMilesLimit));
-    };
-    loadSettings();
-  }, []);
 
+
+  // Fetch Mileage from Firestore
   useEffect(() => {
-    const loadMileage = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('@mileage_history');
-        if (stored) {
-          const data = JSON.parse(stored);
-          let allTrips: Trip[] = [];
-          
-          if (Array.isArray(data)) { // Handle old flat array format
-            allTrips = data;
-          } else if (typeof data === 'object' && data !== null) { // Handle new monthly object format
-            allTrips = Object.values(data).flat();
-          }
-          setMileageHistory(allTrips);
-        }
-      } catch (error) { console.error('Failed to load mileage from storage', error); }
-    };
-    
-    loadMileage(); 
-    const unsubscribe = navigation.addListener('focus', () => {
-      loadMileage(); 
+    if (!user) return;
+    const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
+    const unsubscribe = onSnapshot(tripsCollectionRef, (querySnapshot) => {
+        const trips: Trip[] = [];
+        querySnapshot.forEach((doc) => {
+            trips.push({ id: doc.id, ...doc.data() } as Trip);
+        });
+        setMileageHistory(trips);
     });
-    return unsubscribe;
-  }, [navigation]);
+    return () => unsubscribe();
+}, [user]);
 
   useEffect(() => {
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
@@ -139,15 +117,15 @@ export default function WorkTracker() {
   }, [mileageHistory, selectedWeek, viewedMonthYear]);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!user) return;
 
-    const docRef = doc(db, 'users', USER_ID, 'workLogs', viewedMonthYear);
+    const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
       setWorkLogs(data);
     });
     return () => unsubscribe();
-  }, [viewedMonthYear, isLoggedIn]);
+  }, [viewedMonthYear, user]);
 
   useEffect(() => {
     if (!isLoggedIn) return;
@@ -196,7 +174,7 @@ export default function WorkTracker() {
     } else {
       setWeeklyTotal(0); 
     }
-  }, [workLogs, mileageHistory, isLoggedIn, viewedMonthYear]);
+  }, [workLogs, mileageHistory, user, viewedMonthYear]);
 
   useEffect(() => {
     let inH = parseInt(inHour) || 0;
@@ -216,35 +194,30 @@ export default function WorkTracker() {
     setCalculatedShift(Number(diff.toFixed(2)));
   }, [inHour, inMin, inAmPm, outHour, outMin, outAmPm]);
 
-  const handleLogin = async () => {
-    if (loginUser.trim().toLowerCase() === 'estevan' && loginPass === '1990') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setIsLoggedIn(true);
-      if (rememberMe) await AsyncStorage.setItem('isLoggedIn', 'true');
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Access Denied', 'Incorrect username or password.');
-    }
-  };
+
 
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsLoggedIn(false);
-    await AsyncStorage.removeItem('isLoggedIn');
+    await signOut(auth);
   };
 
   const saveCustomLimit = async () => {
+    if (!user) return;
     const parsed = parseInt(newLimitInput);
     if (!isNaN(parsed) && parsed > 0) {
-      if (limitModalType === 'hours') {
-        setMonthlyLimit(parsed);
-        await AsyncStorage.setItem('monthlyLimit', parsed.toString());
-      } else {
-        setMonthlyMilesLimit(parsed);
-        await AsyncStorage.setItem('monthlyMilesLimit', parsed.toString());
+      const fieldToUpdate = limitModalType === 'hours' ? 'monthlyLimit' : 'monthlyMilesLimit';
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, { [fieldToUpdate]: parsed }, { merge: true });
+        
+        if (limitModalType === 'hours') setMonthlyLimit(parsed);
+        else setMonthlyMilesLimit(parsed);
+        
+        setLimitModalType(null);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        Alert.alert('Error', 'Failed to save limit.');
       }
-      setLimitModalType(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
 
@@ -372,10 +345,11 @@ export default function WorkTracker() {
   };
 
   const saveHours = async () => {
+    if (!user) return;
     setModalVisible(false); 
     try {
       const shiftMonthYear = selectedDate.slice(0, 7);
-      const docRef = doc(db, 'users', USER_ID, 'workLogs', shiftMonthYear);
+      const docRef = doc(db, 'users', user.uid, 'workLogs', shiftMonthYear);
       const inTime = `${inHour.padStart(2, '0')}:${inMin.padStart(2, '0')} ${inAmPm}`;
       const outTime = `${outHour.padStart(2, '0')}:${outMin.padStart(2, '0')} ${outAmPm}`;
       await setDoc(docRef, {
@@ -388,10 +362,11 @@ export default function WorkTracker() {
   };
 
   const deleteShift = async () => {
+    if (!user) return;
     setModalVisible(false);
     try {
       const shiftMonthYear = selectedDate.slice(0, 7);
-      const docRef = doc(db, 'users', USER_ID, 'workLogs', shiftMonthYear);
+      const docRef = doc(db, 'users', user.uid, 'workLogs', shiftMonthYear);
       await updateDoc(docRef, { [selectedDate]: deleteField() });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     } catch (error: any) {
@@ -400,27 +375,38 @@ export default function WorkTracker() {
   };
 
   const deleteCalendarTrip = (id: string) => {
+    if (!user) return;
     Alert.alert('Delete Trip', 'Remove this trip from your records?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-          const newHistory = mileageHistory.filter(trip => trip.id !== id);
-          setMileageHistory(newHistory);
-          await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
+          try {
+            await deleteDoc(doc(db, 'users', user.uid, 'mileage', id));
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (error) {
+            Alert.alert('Error', 'Failed to delete trip.');
+          }
         }
       }
     ]);
   };
 
   const saveManualTripEdit = async () => {
+    if (!user || !manualEditTrip) return;
     const parsed = parseFloat(manualEditMiles);
-    if (isNaN(parsed) || !manualEditTrip) return;
-    const newHistory = mileageHistory.map(t => t.id === manualEditTrip.id ? { ...t, miles: parsed } : t);
-    setMileageHistory(newHistory);
-    await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
-    setManualEditTrip(null);
+    if (isNaN(parsed)) return;
+
+    try {
+        const tripRef = doc(db, 'users', user.uid, 'mileage', manualEditTrip.id);
+        await updateDoc(tripRef, { miles: parsed });
+        setManualEditTrip(null);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+        Alert.alert('Error', 'Failed to update trip miles.');
+    }
   };
 
   const promptWipeMonth = () => {
+    if (!user) return;
     setSettingsVisible(false); 
     Alert.alert(
       "Wipe Calendar",
@@ -429,7 +415,7 @@ export default function WorkTracker() {
         { text: "Cancel", style: "cancel" },
         { text: "Yes, Wipe It", style: "destructive", onPress: async () => {
             try {
-              const docRef = doc(db, 'users', USER_ID, 'workLogs', viewedMonthYear);
+              const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
               await deleteDoc(docRef);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (error: any) {
@@ -450,22 +436,7 @@ export default function WorkTracker() {
   Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
   if (selectedDate) markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: '#3B82F6' };
 
-  if (!isLoggedIn) {
-    return (
-      <KeyboardAvoidingView style={styles.loginContainer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.loginBox}>
-          <Text style={styles.loginTitle}>Estevan Login</Text>
-          <TextInput style={styles.loginInput} placeholder="Username" placeholderTextColor="#94A3B8" value={loginUser} onChangeText={setLoginUser} autoCapitalize="none" />
-          <TextInput style={styles.loginInput} placeholder="Password" placeholderTextColor="#94A3B8" secureTextEntry value={loginPass} onChangeText={setLoginPass} />
-          <TouchableOpacity style={styles.rememberRow} onPress={() => setRememberMe(!rememberMe)} activeOpacity={0.7}>
-            {rememberMe ? <CheckSquare color="#3B82F6" size={24} /> : <Square color="#94A3B8" size={24} />}
-            <Text style={styles.rememberText}>Remember Me</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}><Text style={styles.loginButtonText}>Access Tracker</Text></TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    );
-  }
+
 
   return (
     <View style={styles.container}>

@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { ArrowDown, ArrowUp, Calculator, Calendar as CalendarIcon, ChevronLeft, ChevronRight, History, Map, MapPin, Plus, Save, Search, Trash2, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -16,7 +16,10 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { useAuth } from '../../context/AuthContext';
 import usePlatform from '../../components/usePlatform';
+import { db } from '../../firebaseConfig';
+
 
 // The key is now securely accessed from environment variables
 const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -25,6 +28,7 @@ type Stop = { id: string; address: string; };
 type Trip = { id: string; date: string; miles: number; stopsCount: number; stops?: Stop[] }; // Keep this type
 
 export default function TabTwoScreen() {
+  const { user } = useAuth();
   const flatListRef = useRef<FlatList>(null);
   const [stops, setStops] = useState<Stop[]>([{ id: 'origin', address: '' }, { id: 'dest_1', address: '' }]);
   const [totalMiles, setTotalMiles] = useState<number | null>(null);
@@ -45,33 +49,34 @@ export default function TabTwoScreen() {
 
   const { isWeb } = usePlatform();
 
-  useEffect(() => { loadHistory(); }, []);
+  useEffect(() => {
+    if (!user) {
+      setHistoryByMonth({});
+      return;
+    }
 
-  const loadHistory = async () => {
-    try {
-      const stored = await AsyncStorage.getItem('@mileage_history');
-      if (stored) {
-        const data = JSON.parse(stored);
-        // Migration logic: if it's an array (old format), convert it
-        if (Array.isArray(data)) {
-          const migratedData: Record<string, Trip[]> = {};
-          data.forEach((trip: Trip) => {
-            const month = trip.date.slice(0, 7);
-            if (!migratedData[month]) migratedData[month] = [];
-            migratedData[month].push(trip);
-          });
-          // Sort each month after migration
-          Object.keys(migratedData).forEach(month => {
-            migratedData[month].sort((a, b) => b.date.localeCompare(a.date));
-          });
-          setHistoryByMonth(migratedData);
-          await AsyncStorage.setItem('@mileage_history', JSON.stringify(migratedData));
-        } else {
-          setHistoryByMonth(data);
+    const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
+    const unsubscribe = onSnapshot(query(tripsCollectionRef), (snapshot) => {
+      const newHistory: Record<string, Trip[]> = {};
+      snapshot.forEach(doc => {
+        const trip = { id: doc.id, ...doc.data() } as Trip;
+        const month = trip.date.slice(0, 7);
+        if (!newHistory[month]) {
+          newHistory[month] = [];
         }
+        newHistory[month].push(trip);
+      });
+
+      // Sort each month's trips by date
+      for (const month in newHistory) {
+        newHistory[month].sort((a, b) => b.date.localeCompare(a.date));
       }
-    } catch (error) { console.error('Failed to load history', error); }
-  };
+      
+      setHistoryByMonth(newHistory);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const addStop = () => {
     setStops([...stops, { id: `stop_${Date.now()}`, address: '' }]);
@@ -180,66 +185,52 @@ export default function TabTwoScreen() {
   };
 
   const saveTrip = async () => {
+    if (!user) return Alert.alert("Not Logged In", "You must be logged in to save a trip.");
     if (totalMiles === null) {
       Alert.alert("Cannot Save", "Please calculate the mileage before saving.");
       return;
     }
     const validStops = stops.filter(s => s.address.trim() !== '');
-    const newHistory = { ...historyByMonth };
+    const tripToSave = {
+      date: selectedDate,
+      miles: totalMiles,
+      stopsCount: validStops.length,
+      stops: validStops
+    };
 
-    // If editing, find the original trip to get its original month
-    let originalMonth: string | null = null;
-    if (activeEditTripId) {
-      for (const month in newHistory) {
-        if (newHistory[month].some(t => t.id === activeEditTripId)) {
-          originalMonth = month;
-          break;
-        }
+    try {
+      if (activeEditTripId) {
+        // Update existing trip
+        const tripRef = doc(db, 'users', user.uid, 'mileage', activeEditTripId);
+        await setDoc(tripRef, tripToSave);
+      } else {
+        // Add new trip
+        await addDoc(collection(db, 'users', user.uid, 'mileage'), tripToSave);
       }
+      
+      cancelRouteEdit();
+      Alert.alert('Success', `Trip ${activeEditTripId ? 'Updated' : 'Saved'}!`);
+
+    } catch (error) {
+      console.error("Error saving trip to Firestore:", error);
+      Alert.alert('Error', 'There was an issue saving your trip.');
     }
-
-    // If the trip's date was changed, it might move to a new month.
-    const newTripMonth = selectedDate.slice(0, 7);
-
-    // If it was an edit and the month has changed, remove it from the old month's array
-    if (activeEditTripId && originalMonth && originalMonth !== newTripMonth) {
-      newHistory[originalMonth] = newHistory[originalMonth].filter(t => t.id !== activeEditTripId);
-      if (newHistory[originalMonth].length === 0) delete newHistory[originalMonth];
-    }
-    
-    if (!newHistory[newTripMonth]) newHistory[newTripMonth] = [];
-    
-    const tripToSave: Trip = { id: activeEditTripId || Date.now().toString(), date: selectedDate, miles: totalMiles, stopsCount: validStops.length, stops: validStops };
-
-    if (activeEditTripId) {
-      const tripIndex = newHistory[newTripMonth].findIndex(t => t.id === activeEditTripId);
-      if (tripIndex !== -1) newHistory[newTripMonth][tripIndex] = tripToSave;
-      else newHistory[newTripMonth].push(tripToSave);
-    } else {
-      newHistory[newTripMonth].push(tripToSave);
-    }
-
-    newHistory[newTripMonth].sort((a, b) => b.date.localeCompare(a.date));
-
-    setHistoryByMonth(newHistory);
-    await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
-    
-    cancelRouteEdit(); // Reset form and state
-    Alert.alert('Success', `Trip ${activeEditTripId ? 'Updated' : 'Saved'}!`);
   };
 
-  const deleteTrip = (id: string, month: string) => {
+  const deleteTrip = (id: string) => {
+    if (!user) return;
     Alert.alert('Delete Trip', 'Are you sure you want to permanently delete this trip?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-          const newHistory = { ...historyByMonth };
-          if (newHistory[month]) {
-            newHistory[month] = newHistory[month].filter(trip => trip.id !== id);
-            if (newHistory[month].length === 0) delete newHistory[month];
-            
-            setHistoryByMonth(newHistory);
-            await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
-            if (activeEditTripId === id) cancelRouteEdit();
+      { text: 'Delete', style: 'destructive', async () => {
+          try {
+            const tripRef = doc(db, 'users', user.uid, 'mileage', id);
+            await deleteDoc(tripRef);
+            if (activeEditTripId === id) {
+              cancelRouteEdit();
+            }
+          } catch (error) {
+            Alert.alert('Delete Error', 'Failed to delete trip.');
+            console.error("Error deleting trip:", error);
           }
         }
       }
@@ -247,14 +238,27 @@ export default function TabTwoScreen() {
   };
 
   const clearMonthHistory = () => {
+    if (!user) return;
     Alert.alert(`Clear ${displayMonth}?`, `Are you sure you want to delete all ${tripsForViewedMonth.length} trips for this month? This cannot be undone.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear Month', style: 'destructive', onPress: async () => {
-          const newHistory = { ...historyByMonth };
-          delete newHistory[viewedMonth];
-          setHistoryByMonth(newHistory);
-          await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
-          if (tripsForViewedMonth.some(t => t.id === activeEditTripId)) cancelRouteEdit();
+      { text: 'Clear Month', style: 'destructive', async () => {
+          const batch = writeBatch(db);
+          const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
+          const q = query(tripsCollectionRef, where('date', '>=', viewedMonth), where('date', '<', `${viewedMonth}-32`));
+
+          try {
+            const snapshot = await getDocs(q);
+            snapshot.docs.forEach(doc => {
+              batch.delete(doc.ref);
+            });
+            await batch.commit();
+            if (tripsForViewedMonth.some(t => t.id === activeEditTripId)) {
+              cancelRouteEdit();
+            }
+          } catch (error) {
+            console.error("Error clearing month history:", error);
+            Alert.alert('Error', 'Could not clear month history.');
+          }
         }
       }
     ]);
