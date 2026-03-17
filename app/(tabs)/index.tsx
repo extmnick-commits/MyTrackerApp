@@ -44,6 +44,7 @@ export default function WorkTracker() {
   const [monthlyMiles, setMonthlyMiles] = useState(0); 
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [weeklyTotalsList, setWeeklyTotalsList] = useState<{ week: string; hrs: number; miles: number }[]>([]);
+  const [dailyTotalsList, setDailyTotalsList] = useState<{ date: string; hrs: number; miles: number }[]>([]);
   const [workLogs, setWorkLogs] = useState<Record<string, any>>({});
   const [mileageHistory, setMileageHistory] = useState<Trip[]>([]); 
   
@@ -78,15 +79,20 @@ export default function WorkTracker() {
   const [yearStr, monthStr] = viewedMonthYear.split('-');
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
 
+  // Sync monthly goals with Firebase
   useEffect(() => {
-    const loadSettings = async () => {
-      const savedLimit = await AsyncStorage.getItem('monthlyLimit');
-      if (savedLimit) setMonthlyLimit(Number(savedLimit));
-      const savedMilesLimit = await AsyncStorage.getItem('monthlyMilesLimit');
-      if (savedMilesLimit) setMonthlyMilesLimit(Number(savedMilesLimit));
-    };
-    loadSettings();
-  }, []);
+    if (!user) return;
+
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setMonthlyLimit(data.monthlyHourLimit || 75);
+        setMonthlyMilesLimit(data.monthlyMilesLimit || 500);
+      }
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     const loadMileage = async () => {
@@ -151,6 +157,7 @@ export default function WorkTracker() {
     
     let totalHours = 0;
     const weekGroups: Record<string, { hrs: number; miles: number }> = {};
+    const dailyArray: { date: string; hrs: number; miles: number }[] = [];
 
     allDates.forEach(dateStr => {
       const log = workLogs[dateStr] || {};
@@ -161,6 +168,12 @@ export default function WorkTracker() {
       const dayMilesVal = tripsThisDay.reduce((sum, t) => sum + t.miles, 0);
 
       if (hrsVal > 0 || dayMilesVal > 0) {
+        dailyArray.push({
+          date: dateStr,
+          hrs: hrsVal,
+          miles: dayMilesVal
+        });
+
         const dayOfMonth = parseInt(dateStr.split('-')[2]);
         const weekNum = Math.ceil(dayOfMonth / 7);
         const weekLabel = `Week ${weekNum}`;
@@ -182,6 +195,7 @@ export default function WorkTracker() {
     })).sort((a, b) => a.week.localeCompare(b.week));
     
     setWeeklyTotalsList(weeklyArray);
+    setDailyTotalsList(dailyArray.sort((a, b) => a.date.localeCompare(b.date)));
 
     if (viewedMonthYear === currentMonthYear) {
       const currentWeekNum = Math.ceil(new Date().getDate() / 7);
@@ -216,17 +230,21 @@ export default function WorkTracker() {
   };
 
   const saveCustomLimit = async () => {
+    if (!user) return;
     const parsed = parseInt(newLimitInput);
     if (!isNaN(parsed) && parsed > 0) {
-      if (limitModalType === 'hours') {
-        setMonthlyLimit(parsed);
-        await AsyncStorage.setItem('monthlyLimit', parsed.toString());
-      } else {
-        setMonthlyMilesLimit(parsed);
-        await AsyncStorage.setItem('monthlyMilesLimit', parsed.toString());
+      const userDocRef = doc(db, 'users', user.uid);
+      try {
+        if (limitModalType === 'hours') {
+          await setDoc(userDocRef, { monthlyHourLimit: parsed }, { merge: true });
+        } else {
+          await setDoc(userDocRef, { monthlyMilesLimit: parsed }, { merge: true });
+        }
+        setLimitModalType(null);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        Alert.alert('Update Error', 'Failed to save new goal to your account.');
       }
-      setLimitModalType(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
 
@@ -384,24 +402,45 @@ export default function WorkTracker() {
   };
 
   const deleteCalendarTrip = (id: string) => {
+    if (!user) return;
     Alert.alert('Delete Trip', 'Remove this trip from your records?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-          const newHistory = mileageHistory.filter(trip => trip.id !== id);
-          setMileageHistory(newHistory);
-          await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
+          try {
+            // Optimistically update UI for responsiveness
+            const newHistory = mileageHistory.filter(trip => trip.id !== id);
+            setMileageHistory(newHistory);
+            
+            // Perform the database operation
+            const tripRef = doc(db, 'users', user.uid, 'mileage', id);
+            await deleteDoc(tripRef);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          } catch (error) {
+            Alert.alert('Delete Error', 'Failed to delete trip from the database. The list will refresh.');
+          }
         }
       }
     ]);
   };
 
   const saveManualTripEdit = async () => {
+    if (!user || !manualEditTrip) return;
     const parsed = parseFloat(manualEditMiles);
-    if (isNaN(parsed) || !manualEditTrip) return;
-    const newHistory = mileageHistory.map(t => t.id === manualEditTrip.id ? { ...t, miles: parsed } : t);
-    setMileageHistory(newHistory);
-    await AsyncStorage.setItem('@mileage_history', JSON.stringify(newHistory));
-    setManualEditTrip(null);
+    if (isNaN(parsed)) return;
+
+    try {
+      // Optimistically update UI
+      const newHistory = mileageHistory.map(t => t.id === manualEditTrip.id ? { ...t, miles: parsed } : t);
+      setMileageHistory(newHistory);
+      setManualEditTrip(null);
+
+      // Perform database operation
+      const tripRef = doc(db, 'users', user.uid, 'mileage', manualEditTrip.id);
+      await updateDoc(tripRef, { miles: parsed });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('Update Error', 'Failed to save changes to the database. The list will refresh.');
+    }
   };
 
   const promptWipeMonth = () => {
@@ -445,7 +484,7 @@ export default function WorkTracker() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, Platform.OS === 'web' && styles.webContainer]}>
       <ScrollView>
         <View style={styles.header}>
           <Text style={styles.title}>Work Tracker</Text>
@@ -498,22 +537,44 @@ export default function WorkTracker() {
           />
         </View>
 
-        {weeklyTotalsList.length > 0 && (
+        {(weeklyTotalsList.length > 0 || dailyTotalsList.length > 0) && (
           <View style={styles.weeklyBreakdownContainer}>
-            <Text style={styles.weeklyBreakdownTitle}>{displayMonth} Breakdown</Text>
-            {weeklyTotalsList.map((item, index) => (
-              <TouchableOpacity key={index} style={styles.weekRow} onPress={() => setSelectedWeek(item.week)} activeOpacity={0.7}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                   <Text style={styles.weekLabel}>{item.week}</Text>
-                   <ChevronRight size={16} color="#475569" style={{ marginLeft: 5 }} />
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
-                  <View style={{ width: 1, height: 15, backgroundColor: '#475569', marginHorizontal: 10 }} />
-                  <Text style={[styles.weekHours, { color: '#0a7ea4' }]}>{item.miles.toFixed(1)} mi</Text>
-                </View>
-              </TouchableOpacity>
-            ))}
+            {weeklyTotalsList.length > 0 && (
+              <View>
+                <Text style={styles.weeklyBreakdownTitle}>{displayMonth} Breakdown</Text>
+                {weeklyTotalsList.map((item, index) => (
+                  <TouchableOpacity key={index} style={styles.weekRow} onPress={() => setSelectedWeek(item.week)} activeOpacity={0.7}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={styles.weekLabel}>{item.week}</Text>
+                      <ChevronRight size={16} color="#475569" style={{ marginLeft: 5 }} />
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
+                      <View style={{ width: 1, height: 15, backgroundColor: '#475569', marginHorizontal: 10 }} />
+                      <Text style={[styles.weekHours, { color: '#0a7ea4' }]}>{item.miles.toFixed(1)} mi</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            {dailyTotalsList.length > 0 && (
+              <View style={{ marginTop: weeklyTotalsList.length > 0 ? 30 : 0 }}>
+                <Text style={styles.weeklyBreakdownTitle}>Daily Breakdown</Text>
+                {dailyTotalsList.map((item, index) => (
+                  <TouchableOpacity key={index} style={styles.weekRow} onPress={() => handleDayPress({ dateString: item.date })} activeOpacity={0.7}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={styles.weekLabel}>{item.date}</Text>
+                      <ChevronRight size={16} color="#475569" style={{ marginLeft: 5 }} />
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
+                      <View style={{ width: 1, height: 15, backgroundColor: '#475569', marginHorizontal: 10 }} />
+                      <Text style={[styles.weekHours, { color: '#0a7ea4' }]}>{item.miles.toFixed(1)} mi</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
@@ -633,9 +694,9 @@ export default function WorkTracker() {
               ].map((row, i) => (
                 <View key={i} style={styles.timeRow}><Text style={styles.timeLabel}>{row.l}</Text>
                   <View style={styles.timeInputGroup}>
-                    <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.h} onChangeText={row.setH} selectTextOnFocus maxLength={2} />
+                    <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.h} onChangeText={row.setH} selectTextOnFocus onFocus={Platform.OS === 'web' ? (e: any) => e.target.select() : undefined} maxLength={2} />
                     <Text style={styles.colon}>:</Text>
-                    <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.m} onChangeText={row.setM} selectTextOnFocus maxLength={2} />
+                    <TextInput style={styles.timeInput} keyboardType="numeric" inputMode="numeric" value={row.m} onChangeText={row.setM} selectTextOnFocus onFocus={Platform.OS === 'web' ? (e: any) => e.target.select() : undefined} maxLength={2} />
                     <TouchableOpacity style={styles.amPmToggle} onPress={() => { if(row.t==='in') setInAmPm(p=>p==='AM'?'PM':'AM'); else setOutAmPm(p=>p==='AM'?'PM':'AM'); }}><Text style={styles.amPmText}>{row.ap}</Text></TouchableOpacity>
                   </View>
                 </View>
@@ -673,6 +734,14 @@ export default function WorkTracker() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
+  webContainer: {
+    maxWidth: 800,
+    width: '100%',
+    marginHorizontal: 'auto',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#1E293B'
+  },
   header: { padding: 24, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerIcons: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },

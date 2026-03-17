@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { ArrowDown, ArrowUp, Calculator, Calendar as CalendarIcon, ChevronLeft, ChevronRight, History, Map, MapPin, Plus, Save, Search, Trash2, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -77,6 +78,17 @@ export default function TabTwoScreen() {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Sync Firestore data to AsyncStorage for the other tab to use
+  useEffect(() => {
+    // Check if there's data to save, to avoid writing an empty object on initial load
+    if (Object.keys(historyByMonth).length > 0) {
+      AsyncStorage.setItem('@mileage_history', JSON.stringify(historyByMonth));
+    } else if (user) { // If user is logged in but has no history, clear storage
+      // This handles the case where the last trip of the last month is deleted
+      AsyncStorage.removeItem('@mileage_history');
+    }
+  }, [historyByMonth, user]);
 
   const addStop = () => {
     setStops([...stops, { id: `stop_${Date.now()}`, address: '' }]);
@@ -437,7 +449,7 @@ export default function TabTwoScreen() {
   );
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={[styles.container, Platform.OS === 'web' && styles.webContainer]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <FlatList ref={flatListRef} data={[]} renderItem={null} ListHeaderComponent={renderHeader} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent} />
       
       <Modal visible={activeSearchId !== null} animationType="slide">
@@ -521,6 +533,14 @@ export default function TabTwoScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f3f4f6' },
+  webContainer: {
+    maxWidth: 800,
+    width: '100%',
+    marginHorizontal: 'auto',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#e5e7eb'
+  },
   scrollContent: { paddingBottom: 40 },
   content: { padding: 15 },
   header: { marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
