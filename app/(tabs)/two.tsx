@@ -223,34 +223,34 @@ export default function TabTwoScreen() {
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive', onPress: async () => {
-          // Find the trip to be deleted to get its month for an optimistic update
-          const tripToDelete = Object.values(historyByMonth).flat().find(t => t.id === id);
-
-          // Optimistically update the UI state immediately for better user experience
-          if (tripToDelete) {
-            const month = tripToDelete.date.slice(0, 7);
-            setHistoryByMonth(prev => {
-              const updatedMonthTrips = prev[month]?.filter(t => t.id !== id);
-              const newHistory = { ...prev };
-              if (updatedMonthTrips && updatedMonthTrips.length > 0) {
-                newHistory[month] = updatedMonthTrips;
-              } else {
-                // Remove the month if it has no trips left
-                delete newHistory[month];
-              }
-              return newHistory;
-            });
-          }
-
           try {
+            // Optimistically update the UI for a better user experience
+            const tripToDelete = Object.values(historyByMonth).flat().find(t => t.id === id);
+            if (tripToDelete) {
+              const month = tripToDelete.date.slice(0, 7);
+              setHistoryByMonth(prev => {
+                const newHistory = { ...prev };
+                const updatedMonthTrips = (newHistory[month] || []).filter(t => t.id !== id);
+                
+                if (updatedMonthTrips.length > 0) {
+                  newHistory[month] = updatedMonthTrips;
+                } else {
+                  delete newHistory[month];
+                }
+                return newHistory;
+              });
+            }
+
+            // Perform the database operation
             const tripRef = doc(db, 'users', user.uid, 'mileage', id);
-            await deleteDoc(tripRef); // This triggers onSnapshot, which will re-sync from Firestore, confirming the change
+            await deleteDoc(tripRef);
+
             if (activeEditTripId === id) {
               cancelRouteEdit();
             }
           } catch (error) {
-            Alert.alert('Delete Error', 'Failed to delete trip from the database. The list will refresh to undo the change.');
             console.error("Error deleting trip:", error);
+            Alert.alert('Delete Error', 'Failed to delete trip. The list will be automatically synced to reflect the correct data.');
             // The onSnapshot listener will eventually correct the state if the delete fails, reverting the optimistic update.
           }
         }
