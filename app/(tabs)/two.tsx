@@ -85,7 +85,11 @@ export default function TabTwoScreen() {
 
   const removeStop = (id: string) => {
     if (stops.length <= 2) {
-      Alert.alert("Action Not Allowed", "A route must have at least an Origin and a Destination.");
+      if (Platform.OS === 'web') {
+        window.alert("Action Not Allowed: A route must have at least an Origin and a Destination.");
+      } else {
+        Alert.alert("Action Not Allowed", "A route must have at least an Origin and a Destination.");
+      }
       return;
     }
     setStops(stops.filter(s => s.id !== id));
@@ -219,70 +223,92 @@ export default function TabTwoScreen() {
 
   const deleteTrip = (id: string) => {
     if (!user) return;
-    Alert.alert('Delete Trip', 'Are you sure you want to permanently delete this trip?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive', onPress: async () => {
-          try {
-            // Optimistically update the UI for a better user experience
-            const tripToDelete = Object.values(historyByMonth).flat().find(t => t.id === id);
-            if (tripToDelete) {
-              const month = tripToDelete.date.slice(0, 7);
-              setHistoryByMonth(prev => {
-                const newHistory = { ...prev };
-                const updatedMonthTrips = (newHistory[month] || []).filter(t => t.id !== id);
-                
-                if (updatedMonthTrips.length > 0) {
-                  newHistory[month] = updatedMonthTrips;
-                } else {
-                  delete newHistory[month];
-                }
-                return newHistory;
-              });
-            }
 
-            // Perform the database operation
-            const tripRef = doc(db, 'users', user.uid, 'mileage', id);
-            await deleteDoc(tripRef);
-
-            if (activeEditTripId === id) {
-              cancelRouteEdit();
+    const executeDelete = async () => {
+      try {
+        // Optimistically update the UI for a better user experience
+        const tripToDelete = Object.values(historyByMonth).flat().find(t => t.id === id);
+        if (tripToDelete) {
+          const month = tripToDelete.date.slice(0, 7);
+          setHistoryByMonth(prev => {
+            const newHistory = { ...prev };
+            const updatedMonthTrips = (newHistory[month] || []).filter(t => t.id !== id);
+            
+            if (updatedMonthTrips.length > 0) {
+              newHistory[month] = updatedMonthTrips;
+            } else {
+              delete newHistory[month];
             }
-          } catch (error) {
-            console.error("Error deleting trip:", error);
-            Alert.alert('Delete Error', 'Failed to delete trip. The list will be automatically synced to reflect the correct data.');
-            // The onSnapshot listener will eventually correct the state if the delete fails, reverting the optimistic update.
-          }
+            return newHistory;
+          });
+        }
+
+        // Perform the database operation
+        const tripRef = doc(db, 'users', user.uid, 'mileage', id);
+        await deleteDoc(tripRef);
+
+        if (activeEditTripId === id) {
+          cancelRouteEdit();
+        }
+      } catch (error) {
+        console.error("Error deleting trip:", error);
+        if (Platform.OS === 'web') {
+          window.alert('Failed to delete trip. The list will be automatically synced to reflect the correct data.');
+        } else {
+          Alert.alert('Delete Error', 'Failed to delete trip. The list will be automatically synced to reflect the correct data.');
         }
       }
-    ]);
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to permanently delete this trip?')) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert('Delete Trip', 'Are you sure you want to permanently delete this trip?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: executeDelete }
+      ]);
+    }
   };
 
   const clearMonthHistory = () => {
     if (!user) return;
-    Alert.alert(`Clear ${displayMonth}?`, `Are you sure you want to delete all ${tripsForViewedMonth.length} trips for this month? This cannot be undone.`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear Month', style: 'destructive', onPress: async () => {
-          const batch = writeBatch(db);
-          const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
-          const q = query(tripsCollectionRef, where('date', '>=', viewedMonth), where('date', '<', `${viewedMonth}-32`));
 
-          try {
-            const snapshot = await getDocs(q);
-            snapshot.docs.forEach(doc => {
-              batch.delete(doc.ref);
-            });
-            await batch.commit();
-            if (tripsForViewedMonth.some(t => t.id === activeEditTripId)) {
-              cancelRouteEdit();
-            }
-          } catch (error) {
-            console.error("Error clearing month history:", error);
-            Alert.alert('Error', 'Could not clear month history.');
-          }
+    const executeClear = async () => {
+      const batch = writeBatch(db);
+      const tripsCollectionRef = collection(db, 'users', user.uid, 'mileage');
+      const q = query(tripsCollectionRef, where('date', '>=', viewedMonth), where('date', '<', `${viewedMonth}-32`));
+
+      try {
+        const snapshot = await getDocs(q);
+        snapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
+        if (tripsForViewedMonth.some(t => t.id === activeEditTripId)) {
+          cancelRouteEdit();
+        }
+      } catch (error) {
+        console.error("Error clearing month history:", error);
+        if (Platform.OS === 'web') {
+          window.alert('Could not clear month history.');
+        } else {
+          Alert.alert('Error', 'Could not clear month history.');
         }
       }
-    ]);
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Are you sure you want to delete all ${tripsForViewedMonth.length} trips for this month? This cannot be undone.`)) {
+        executeClear();
+      }
+    } else {
+      Alert.alert(`Clear ${displayMonth}?`, `Are you sure you want to delete all ${tripsForViewedMonth.length} trips for this month? This cannot be undone.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear Month', style: 'destructive', onPress: executeClear }
+      ]);
+    }
   };
 
   const loadTripForEditing = (trip: Trip) => {

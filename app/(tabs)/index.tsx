@@ -398,26 +398,33 @@ export default function WorkTracker() {
 
   const deleteCalendarTrip = (id: string) => {
     if (!user) return;
-    Alert.alert('Delete Trip', 'Remove this trip from your records?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-          try {
-            // Optimistically update both states for immediate UI feedback in the modal
-            setMileageHistory(prev => prev.filter(trip => trip.id !== id));
-            
-            // Perform the database operation
-            const tripRef = doc(db, 'users', user.uid, 'mileage', id);
-            await deleteDoc(tripRef);
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            // The main onSnapshot listener will then receive the update from Firestore.
-          } catch (error) {
-            console.error("Error deleting trip:", error);
-            Alert.alert('Delete Error', 'Failed to delete trip. The list will be automatically synced to reflect the correct data.');
-            // onSnapshot will eventually correct the UI if the delete fails.
-          }
+
+    const executeDelete = async () => {
+      try {
+        setMileageHistory(prev => prev.filter(trip => trip.id !== id));
+        const tripRef = doc(db, 'users', user.uid, 'mileage', id);
+        await deleteDoc(tripRef);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error) {
+        console.error("Error deleting trip:", error);
+        if (Platform.OS === 'web') {
+          window.alert('Failed to delete trip. The list will be automatically synced to reflect the correct data.');
+        } else {
+          Alert.alert('Delete Error', 'Failed to delete trip. The list will be automatically synced to reflect the correct data.');
         }
       }
-    ]);
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm('Remove this trip from your records?')) {
+        executeDelete();
+      }
+    } else {
+      Alert.alert('Delete Trip', 'Remove this trip from your records?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: executeDelete }
+      ]);
+    }
   };
 
   const saveManualTripEdit = async () => {
@@ -442,24 +449,38 @@ export default function WorkTracker() {
 
   const promptWipeMonth = () => {
     setSettingsVisible(false); 
-    Alert.alert(
-      "Wipe Calendar",
-      `Are you sure you want to delete ALL shifts for ${displayMonth}? This cannot be undone.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Yes, Wipe It", style: "destructive", onPress: async () => {
-            if (!user) return;
-            try {
-              const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
-              await deleteDoc(docRef);
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            } catch (error: any) {
-              Alert.alert("Wipe Error", error.message);
-            }
-          }
+
+    const executeWipe = async () => {
+      if (!user) return;
+      try {
+        const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
+        await deleteDoc(docRef);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error: any) {
+        if (Platform.OS === 'web') {
+          window.alert(error.message);
+        } else {
+          Alert.alert("Wipe Error", error.message);
         }
-      ]
-    );
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      setTimeout(() => {
+        if (window.confirm(`Are you sure you want to delete ALL shifts for ${displayMonth}? This cannot be undone.`)) {
+          executeWipe();
+        }
+      }, 100);
+    } else {
+      Alert.alert(
+        "Wipe Calendar",
+        `Are you sure you want to delete ALL shifts for ${displayMonth}? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Yes, Wipe It", style: "destructive", onPress: executeWipe }
+        ]
+      );
+    }
   };
 
   const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
