@@ -3,10 +3,12 @@ import * as Haptics from 'expo-haptics';
 import * as Print from 'expo-print';
 import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
+import { signOut } from 'firebase/auth';
 import { deleteDoc, deleteField, doc, onSnapshot, setDoc, updateDoc } from 'firebase/firestore';
-import { CheckCircle2, CheckSquare, ChevronRight, Clock, Edit2, LogOut, MapPin, Printer, Settings, Square, Trash2, TrendingUp, X } from 'lucide-react-native';
+import { CheckCircle2, ChevronRight, Clock, Edit2, LogOut, MapPin, Printer, Settings, Trash2, TrendingUp, X } from 'lucide-react-native';
 import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Keyboard,
   KeyboardAvoidingView,
@@ -22,11 +24,8 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
-import { db } from '../../firebaseConfig';
-
-const USER_ID = "estevan209";
-
-
+import { useAuth } from '../../context/AuthContext';
+import { auth, db } from '../../firebaseConfig';
 
 // Added Types for the imported Timeline Sync
 type Stop = { id: string; address: string; };
@@ -34,10 +33,7 @@ type Trip = { id: string; date: string; miles: number; stopsCount: number; stops
 
 export default function WorkTracker() {
   const navigation = useNavigation();
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loginUser, setLoginUser] = useState('');
-  const [loginPass, setLoginPass] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const { user } = useAuth();
 
   // Limits
   const [monthlyLimit, setMonthlyLimit] = useState(75);
@@ -84,8 +80,6 @@ export default function WorkTracker() {
 
   useEffect(() => {
     const loadSettings = async () => {
-      const savedLogin = await AsyncStorage.getItem('isLoggedIn');
-      if (savedLogin === 'true') setIsLoggedIn(true);
       const savedLimit = await AsyncStorage.getItem('monthlyLimit');
       if (savedLimit) setMonthlyLimit(Number(savedLimit));
       const savedMilesLimit = await AsyncStorage.getItem('monthlyMilesLimit');
@@ -103,9 +97,9 @@ export default function WorkTracker() {
           let allTrips: Trip[] = [];
           
           if (Array.isArray(data)) { // Handle old flat array format
-            allTrips = data;
+            allTrips = data as Trip[];
           } else if (typeof data === 'object' && data !== null) { // Handle new monthly object format
-            allTrips = Object.values(data).flat();
+            allTrips = Object.values(data as Record<string, Trip[]>).flat();
           }
           setMileageHistory(allTrips);
         }
@@ -139,18 +133,18 @@ export default function WorkTracker() {
   }, [mileageHistory, selectedWeek, viewedMonthYear]);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!user) return;
 
-    const docRef = doc(db, 'users', USER_ID, 'workLogs', viewedMonthYear);
+    const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
       setWorkLogs(data);
     });
     return () => unsubscribe();
-  }, [viewedMonthYear, isLoggedIn]);
+  }, [viewedMonthYear, user]);
 
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!user) return;
 
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
     const allDates = new Set([...Object.keys(workLogs), ...tripsThisMonth.map(t => t.date)]);
@@ -196,7 +190,7 @@ export default function WorkTracker() {
     } else {
       setWeeklyTotal(0); 
     }
-  }, [workLogs, mileageHistory, isLoggedIn, viewedMonthYear]);
+  }, [workLogs, mileageHistory, user, viewedMonthYear]);
 
   useEffect(() => {
     let inH = parseInt(inHour) || 0;
@@ -216,21 +210,9 @@ export default function WorkTracker() {
     setCalculatedShift(Number(diff.toFixed(2)));
   }, [inHour, inMin, inAmPm, outHour, outMin, outAmPm]);
 
-  const handleLogin = async () => {
-    if (loginUser.trim().toLowerCase() === 'estevan' && loginPass === '1990') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setIsLoggedIn(true);
-      if (rememberMe) await AsyncStorage.setItem('isLoggedIn', 'true');
-    } else {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      Alert.alert('Access Denied', 'Incorrect username or password.');
-    }
-  };
-
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsLoggedIn(false);
-    await AsyncStorage.removeItem('isLoggedIn');
+    await signOut(auth);
   };
 
   const saveCustomLimit = async () => {
@@ -372,10 +354,11 @@ export default function WorkTracker() {
   };
 
   const saveHours = async () => {
+    if (!user) return;
     setModalVisible(false); 
     try {
       const shiftMonthYear = selectedDate.slice(0, 7);
-      const docRef = doc(db, 'users', USER_ID, 'workLogs', shiftMonthYear);
+      const docRef = doc(db, 'users', user.uid, 'workLogs', shiftMonthYear);
       const inTime = `${inHour.padStart(2, '0')}:${inMin.padStart(2, '0')} ${inAmPm}`;
       const outTime = `${outHour.padStart(2, '0')}:${outMin.padStart(2, '0')} ${outAmPm}`;
       await setDoc(docRef, {
@@ -388,10 +371,11 @@ export default function WorkTracker() {
   };
 
   const deleteShift = async () => {
+    if (!user) return;
     setModalVisible(false);
     try {
       const shiftMonthYear = selectedDate.slice(0, 7);
-      const docRef = doc(db, 'users', USER_ID, 'workLogs', shiftMonthYear);
+      const docRef = doc(db, 'users', user.uid, 'workLogs', shiftMonthYear);
       await updateDoc(docRef, { [selectedDate]: deleteField() });
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     } catch (error: any) {
@@ -428,8 +412,9 @@ export default function WorkTracker() {
       [
         { text: "Cancel", style: "cancel" },
         { text: "Yes, Wipe It", style: "destructive", onPress: async () => {
+            if (!user) return;
             try {
-              const docRef = doc(db, 'users', USER_ID, 'workLogs', viewedMonthYear);
+              const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
               await deleteDoc(docRef);
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             } catch (error: any) {
@@ -450,20 +435,12 @@ export default function WorkTracker() {
   Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
   if (selectedDate) markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: '#3B82F6' };
 
-  if (!isLoggedIn) {
+  if (!user) {
     return (
-      <KeyboardAvoidingView style={styles.loginContainer} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.loginBox}>
-          <Text style={styles.loginTitle}>Estevan Login</Text>
-          <TextInput style={styles.loginInput} placeholder="Username" placeholderTextColor="#94A3B8" value={loginUser} onChangeText={setLoginUser} autoCapitalize="none" />
-          <TextInput style={styles.loginInput} placeholder="Password" placeholderTextColor="#94A3B8" secureTextEntry value={loginPass} onChangeText={setLoginPass} />
-          <TouchableOpacity style={styles.rememberRow} onPress={() => setRememberMe(!rememberMe)} activeOpacity={0.7}>
-            {rememberMe ? <CheckSquare color="#3B82F6" size={24} /> : <Square color="#94A3B8" size={24} />}
-            <Text style={styles.rememberText}>Remember Me</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.loginButton} onPress={handleLogin}><Text style={styles.loginButtonText}>Access Tracker</Text></TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#F8FAFC" />
+        <Text style={{ color: '#94A3B8', marginTop: 15 }}>Waiting for user session...</Text>
+      </View>
     );
   }
 

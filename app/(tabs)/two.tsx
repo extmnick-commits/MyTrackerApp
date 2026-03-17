@@ -16,8 +16,8 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
-import { useAuth } from '../../context/AuthContext';
 import usePlatform from '../../components/usePlatform';
+import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 
 
@@ -427,7 +427,7 @@ export default function TabTwoScreen() {
                 <TouchableOpacity style={[styles.actionPill, !hasStops && { opacity: 0.5 }]} onPress={() => loadTripForEditing(trip)} disabled={!hasStops}>
                   <Map size={14} color="#0a7ea4" /><Text style={styles.actionPillText}>Edit Route</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.iconButton} onPress={() => deleteTrip(trip.id, viewedMonth)}><Trash2 size={18} color="#ef4444" /></TouchableOpacity>
+                <TouchableOpacity style={styles.iconButton} onPress={() => deleteTrip(trip.id)}><Trash2 size={18} color="#ef4444" /></TouchableOpacity>
               </View>
             </View>
           );
