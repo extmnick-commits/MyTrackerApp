@@ -402,16 +402,18 @@ export default function WorkTracker() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
           try {
-            // Optimistically update UI for responsiveness
-            const newHistory = mileageHistory.filter(trip => trip.id !== id);
-            setMileageHistory(newHistory);
+            // Optimistically update both states for immediate UI feedback in the modal
+            setWeekTrips(prev => prev.filter(trip => trip.id !== id));
+            setMileageHistory(prev => prev.filter(trip => trip.id !== id));
             
             // Perform the database operation
             const tripRef = doc(db, 'users', user.uid, 'mileage', id);
             await deleteDoc(tripRef);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // The main onSnapshot listener will handle the final consistent state.
           } catch (error) {
             Alert.alert('Delete Error', 'Failed to delete trip from the database. The list will refresh.');
+            // onSnapshot will eventually correct the UI if the delete fails.
           }
         }
       }
