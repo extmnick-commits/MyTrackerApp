@@ -4,8 +4,8 @@ import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
 import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
-import { CheckCircle2, ChevronRight, Clock, Edit2, LogOut, MapPin, Printer, Settings, Trash2, TrendingUp, X } from 'lucide-react-native';
-import React, { useEffect, useState } from 'react';
+import { CheckCircle2, ChevronRight, Clock, Edit2, FileText, LogOut, MapPin, Printer, Settings, Trash2, TrendingUp, X } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -60,6 +60,11 @@ export default function WorkTracker() {
   const [selectedDate, setSelectedDate] = useState('');
   const [dayMiles, setDayMiles] = useState(0); 
   
+  // Notes State
+  const [isNotesModalVisible, setNotesModalVisible] = useState(false);
+  const [monthlyNotes, setMonthlyNotes] = useState('');
+  const [notesInput, setNotesInput] = useState('');
+
   // Shift Times
   const [inHour, setInHour] = useState('09');
   const [inMin, setInMin] = useState('00');
@@ -139,7 +144,9 @@ export default function WorkTracker() {
     const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
-      setWorkLogs(data);
+      const { notes, ...logs } = data;
+      setWorkLogs(logs);
+      setMonthlyNotes(notes || '');
     });
     return () => unsubscribe();
   }, [viewedMonthYear, user]);
@@ -243,6 +250,22 @@ export default function WorkTracker() {
     }
   };
 
+  const saveNotes = async () => {
+    if (!user) return;
+    try {
+      const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
+      await setDoc(docRef, { notes: notesInput }, { merge: true });
+      setNotesModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error: any) {
+      if (Platform.OS === 'web') {
+        window.alert(error.message);
+      } else {
+        Alert.alert("Error", error.message);
+      }
+    }
+  };
+
   // Helper for Premium UI Timeline and PDF
   const formatAddress = (address: string) => {
     if (!address) return { title: 'Unknown', sub: '' };
@@ -254,6 +277,17 @@ export default function WorkTracker() {
   const generatePDF = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
+    // Add notes section if there are any
+    let notesHtml = '';
+    if (monthlyNotes) {
+      notesHtml = `
+        <div style="background: #F8FAFC; padding: 20px; border-radius: 12px; margin-bottom: 30px; border: 1px solid #E2E8F0;">
+          <h3 style="margin-top: 0; color: #0F172A; font-size: 16px;">Notes for ${displayMonth}</h3>
+          <p style="margin: 0; color: #475569; white-space: pre-wrap;">${monthlyNotes}</p>
+        </div>
+      `;
+    }
+
     // Filter trips for the currently viewed month
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
     
@@ -314,6 +348,8 @@ export default function WorkTracker() {
               <p style="margin: 0; font-size: 28px; color: #10b981; font-weight: 900;">$${estDeduction}</p>
             </div>
           </div>
+
+          ${notesHtml}
 
           <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
             <thead>
@@ -507,6 +543,7 @@ export default function WorkTracker() {
         <View style={styles.header}>
           <Text style={styles.title}>Work Tracker</Text>
           <View style={styles.headerIcons}>
+            <TouchableOpacity onPress={() => { setNotesInput(monthlyNotes); setNotesModalVisible(true); }} style={{ marginRight: 20 }}><FileText color="#94A3B8" size={28} /></TouchableOpacity>
             <TouchableOpacity onPress={generatePDF} style={{ marginRight: 20 }}><Printer color="#F8FAFC" size={28} /></TouchableOpacity>
             <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{ marginRight: 20 }}><Settings color="#94A3B8" size={28} /></TouchableOpacity>
             <TouchableOpacity onPress={handleLogout}><LogOut color="#EF4444" size={28} /></TouchableOpacity>
@@ -551,7 +588,7 @@ export default function WorkTracker() {
             theme={{ calendarBackground: '#1E293B', dayTextColor: '#F8FAFC', monthTextColor: '#F8FAFC', todayTextColor: '#3B82F6', arrowColor: '#3B82F6' }}
             onDayPress={handleDayPress} 
             markedDates={markedDates}
-            onMonthChange={(month) => setViewedMonthYear(month.dateString.slice(0, 7))}
+            onMonthChange={(month: any) => setViewedMonthYear(month.dateString.slice(0, 7))}
           />
         </View>
 
@@ -679,6 +716,28 @@ export default function WorkTracker() {
                 <TouchableOpacity style={[styles.saveButton, { flex: 1, backgroundColor: '#0a7ea4' }]} onPress={saveManualTripEdit}><Text style={styles.saveButtonText}>Save</Text></TouchableOpacity>
               </View>
            </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isNotesModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderRadius: 20, margin: 20 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{displayMonth} Notes</Text>
+              <TouchableOpacity onPress={() => setNotesModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            <TextInput
+              style={[styles.loginInput, { minHeight: 120, textAlignVertical: 'top' }]}
+              multiline
+              placeholder="Type your notes here..."
+              placeholderTextColor="#94A3B8"
+              value={notesInput}
+              onChangeText={setNotesInput}
+            />
+            <TouchableOpacity style={styles.saveButton} onPress={saveNotes}>
+              <Text style={styles.saveButtonText}>Save Notes</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 

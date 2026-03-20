@@ -1,6 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { ArrowDown, ArrowUp, Calculator, Calendar as CalendarIcon, ChevronLeft, ChevronRight, History, Map, MapPin, Plus, Save, Search, Trash2, X } from 'lucide-react-native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -535,7 +535,7 @@ export default function TabTwoScreen() {
             : // Native GooglePlacesAutocomplete
             <GooglePlacesAutocomplete
               placeholder="Type address..."
-              onPress={(data) => handlePlaceSelect(data.description)}
+              onPress={(data: any) => handlePlaceSelect(data.description)}
               query={{ key: GOOGLE_MAPS_API_KEY, language: 'en' }}
               fetchDetails={true}
               keyboardShouldPersistTaps="handled"
@@ -556,7 +556,7 @@ export default function TabTwoScreen() {
       <Modal visible={isDatePickerVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Calendar onDayPress={(day) => { setSelectedDate(day.dateString); setDatePickerVisible(false); }} markedDates={{ [selectedDate]: { selected: true, selectedColor: '#0a7ea4' } }} theme={{ todayTextColor: '#0a7ea4', arrowColor: '#0a7ea4' }}/>
+            <Calendar onDayPress={(day: any) => { setSelectedDate(day.dateString); setDatePickerVisible(false); }} markedDates={{ [selectedDate]: { selected: true, selectedColor: '#0a7ea4' } }} theme={{ todayTextColor: '#0a7ea4', arrowColor: '#0a7ea4' }}/>
             <TouchableOpacity style={styles.closeModalButton} onPress={() => setDatePickerVisible(false)}><Text style={styles.closeModalText}>Cancel</Text></TouchableOpacity>
           </View>
         </View>
