@@ -578,7 +578,35 @@ export default function WorkTracker() {
 
     try {
       if (Platform.OS === 'web') {
-        await Print.printAsync({ html: htmlContent });
+        // Use an iframe to print the specific HTML content silently on web
+        // This avoids Expo Print bugs where it just prints the whole app screen
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'absolute';
+        iframe.style.top = '-10000px';
+        iframe.style.left = '-10000px';
+        iframe.style.width = '100%';
+        iframe.style.height = '100%';
+        iframe.style.border = 'none';
+        document.body.appendChild(iframe);
+        
+        const doc = iframe.contentWindow?.document;
+        if (doc) {
+          doc.open();
+          doc.write(htmlContent);
+          doc.close();
+        }
+        
+        // Give the browser time to load and render the iframe before printing
+        setTimeout(() => {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          // Clean up the iframe after the print dialog is triggered
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 2000);
+        }, 500);
       } else {
         const file = await Print.printToFileAsync({ html: htmlContent, base64: false });
         await Sharing.shareAsync(file.uri, { 
