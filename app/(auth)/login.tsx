@@ -1,3 +1,4 @@
+import { Stack } from 'expo-router';
 import {
   createUserWithEmailAndPassword,
   signInAnonymously,
@@ -108,6 +109,7 @@ export default function LoginScreen() {
       style={styles.loginContainer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.loginBox}>
         <Text style={styles.loginTitle}>
           {isPinLogin ? 'Family Access' : isRegistering ? 'Create Account' : 'MyTrackerApp Login'}

@@ -4,14 +4,14 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { ChevronRight, Clock, LogOut, TrendingUp, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
@@ -157,7 +157,13 @@ export default function FamilyDashboard() {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color="#F8FAFC" />
-        <Text style={{ color: '#94A3B8', marginTop: 15 }}>Loading Caregiver Data...</Text>
+        <Text style={{ color: '#94A3B8', marginTop: 15, marginBottom: 30 }}>Loading Caregiver Data...</Text>
+        <TouchableOpacity 
+          style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#1E293B', borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}
+          onPress={handleLogout}
+        >
+          <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Cancel / Reset Login</Text>
+        </TouchableOpacity>
       </View>
     );
   }

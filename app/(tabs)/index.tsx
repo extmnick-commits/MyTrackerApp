@@ -328,6 +328,31 @@ export default function WorkTracker() {
     }
   };
 
+  const removeFamilyMember = (memberId: string, memberName: string) => {
+    if (!user) return;
+
+    const executeRemove = async () => {
+      try {
+        await deleteDoc(doc(db, 'familyMembers', memberId));
+        if (Platform.OS === 'web') {
+          window.alert(`Success: ${memberName} has been removed.`);
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert('Success', `${memberName} has been removed.`);
+        }
+      } catch (error) {
+        if (Platform.OS === 'web') window.alert('Failed to remove family member.');
+        else Alert.alert('Error', 'Failed to remove family member.');
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Remove ${memberName} from active viewers?`)) executeRemove();
+    } else {
+      Alert.alert("Remove Viewer?", `Remove ${memberName} from active viewers?`, [ { text: "Cancel", style: "cancel" }, { text: "Yes, Remove", style: "destructive", onPress: executeRemove } ]);
+    }
+  };
+
   const saveNotes = async () => {
     if (!user) return;
     try {
@@ -355,13 +380,15 @@ export default function WorkTracker() {
   const generatePDF = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
+    const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
     // Add notes section if there are any
     let notesHtml = '';
     if (monthlyNotes) {
       notesHtml = `
-        <div style="background: #F8FAFC; padding: 20px; border-radius: 12px; margin-bottom: 30px; border: 1px solid #E2E8F0;">
-          <h3 style="margin-top: 0; color: #0F172A; font-size: 16px;">Notes for ${displayMonth}</h3>
-          <p style="margin: 0; color: #475569; white-space: pre-wrap;">${monthlyNotes}</p>
+        <div class="notes-section">
+          <h3 class="notes-title">Caregiver Notes</h3>
+          <p class="notes-content">${monthlyNotes}</p>
         </div>
       `;
     }
@@ -383,77 +410,170 @@ export default function WorkTracker() {
       const dayMiles = dayTrips.reduce((sum, t) => sum + t.miles, 0);
       
       // Construct the route timeline string
-      let routeHtml = '<span style="color: #94A3B8; font-style: italic;">--</span>';
+      let routeHtml = '<span style="color: #9ca3af; font-style: italic;">No travel logged</span>';
       if (dayTrips.length > 0) {
           const routes = dayTrips.map(trip => {
               if (trip.stops && trip.stops.length > 0) {
-                  return trip.stops.map(s => formatAddress(s.address).title).join(' &rarr; ');
+                  return trip.stops.map((s, i) => {
+                      const isFirst = i === 0;
+                      const isLast = i === trip.stops!.length - 1;
+                      const color = isFirst ? '#10b981' : isLast ? '#ef4444' : '#6b7280';
+                      const label = isFirst ? '<strong>[Start]</strong>' : isLast ? '<strong>[End]</strong>' : '<strong>[Stop]</strong>';
+                      return `<div style="color: ${color}; padding: 3px 0;">${label} <span style="color: #374151;">${s.address}</span></div>`;
+                  }).join('<div style="color: #cbd5e1; font-size: 16px; padding-left: 10px;">&darr;</div>');
               }
-              return 'Legacy Route Data';
-          }).join('<br/><br/>');
-          routeHtml = `<span style="font-size: 12px; color: #475569; line-height: 1.4;">${routes}</span>`;
+              return '<div style="color: #6b7280; font-style: italic;">Legacy Route Data</div>';
+          }).join('<hr style="border: 0; border-top: 1px dashed #e5e7eb; margin: 15px 0;" />');
+          routeHtml = `<div style="font-size: 12px; line-height: 1.4;">${routes}</div>`;
       }
 
       return `
         <tr>
-          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top;"><strong>${date}</strong></td>
-          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top; color: #475569;">${log.in || '--'}</td>
-          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top; color: #475569;">${log.out || '--'}</td>
-          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top;"><strong>${log.totalHours || 0} hrs</strong></td>
-          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top; color: #3B82F6;"><strong>${dayMiles.toFixed(1)} mi</strong></td>
-          <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top;">${routeHtml}</td>
+          <td class="val-cell">${date}</td>
+          <td>${log.in || '--'}</td>
+          <td>${log.out || '--'}</td>
+          <td class="val-cell">${log.totalHours ? log.totalHours.toFixed(2) : '0'}</td>
+          <td class="miles-cell">${dayMiles > 0 ? dayMiles.toFixed(1) : '--'}</td>
+          <td>${routeHtml}</td>
         </tr>
       `;
     }).join('');
 
     const estDeduction = (monthlyMiles * 0.67).toFixed(2);
+    const totalDaysWorked = sortedDates.length;
 
     const htmlContent = `
+      <!DOCTYPE html>
       <html>
-        <body style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; color: #1E293B; max-width: 1000px; margin: 0 auto;">
-          <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="margin: 0; font-size: 32px; color: #0F172A;">Work & Mileage Report</h1>
-            <h2 style="margin: 5px 0 0 0; color: #3B82F6; font-weight: normal;">${displayMonth}</h2>
-          </div>
+      <head>
+        <style>
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1f2937; margin: 0; padding: 40px; background-color: #ffffff; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { margin: 0 0 5px 0; font-size: 28px; color: #111827; letter-spacing: -0.5px; }
+          .header p { margin: 0; color: #6b7280; font-size: 14px; }
+          .brand { text-align: right; }
+          .brand-title { font-size: 20px; font-weight: 800; color: #0369a1; margin: 0 0 5px 0; letter-spacing: -0.5px; }
           
-          <div style="background: #F8FAFC; padding: 25px; border-radius: 12px; margin-bottom: 30px; border: 1px solid #E2E8F0; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <p style="margin: 0 0 10px 0; font-size: 16px;"><strong>Total Hours:</strong> ${hoursWorked.toFixed(1)} / ${monthlyLimit} hrs</p>
-              <p style="margin: 0; font-size: 16px;"><strong>Total Miles:</strong> ${monthlyMiles.toFixed(1)} / ${monthlyMilesLimit} mi</p>
-            </div>
-            <div style="background: #ecfdf5; padding: 15px 20px; border-radius: 8px; border: 1px solid #10b981; text-align: right;">
-              <p style="margin: 0 0 5px 0; font-size: 14px; color: #059669; font-weight: bold;">Est. IRS Tax Deduction</p>
-              <p style="margin: 0; font-size: 28px; color: #10b981; font-weight: 900;">$${estDeduction}</p>
-            </div>
+          .summary-grid { display: flex; gap: 20px; margin-bottom: 30px; }
+          .summary-box { flex: 1; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px 20px; }
+          .summary-box.highlight { background: #f0fdf4; border-color: #34d399; }
+          .summary-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; margin-bottom: 5px; font-weight: 600; }
+          .summary-box.highlight .summary-label { color: #059669; }
+          .summary-value { font-size: 24px; font-weight: 700; color: #111827; margin: 0; }
+          .summary-box.highlight .summary-value { color: #059669; }
+          .summary-subtext { font-size: 13px; color: #9ca3af; margin-top: 5px; }
+
+          .notes-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 20px; margin-bottom: 30px; }
+          .notes-title { font-size: 14px; font-weight: 700; color: #d97706; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+          .notes-content { margin: 0; font-size: 14px; color: #92400e; line-height: 1.6; white-space: pre-wrap; }
+
+          table { width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 13px; }
+          th { background: #f3f4f6; padding: 12px 15px; text-align: left; font-weight: 600; color: #4b5563; border-bottom: 2px solid #e5e7eb; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+          td { padding: 15px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; color: #374151; }
+          tr:nth-child(even) { background-color: #f9fafb; }
+          .val-cell { font-weight: 600; color: #111827; }
+          .miles-cell { font-weight: 600; color: #0369a1; }
+          
+          .table-footer { background: #f3f4f6; font-weight: bold; font-size: 14px; }
+          .table-footer td { color: #111827; border-top: 2px solid #e5e7eb; border-bottom: none; }
+
+          .signatures { display: flex; justify-content: space-between; margin-top: 60px; page-break-inside: avoid; }
+          .sig-block { width: 45%; }
+          .sig-line { border-top: 1px solid #9ca3af; margin-bottom: 10px; padding-top: 5px; }
+          .sig-text { font-size: 12px; color: #6b7280; font-style: italic; }
+
+          .footer { text-align: center; font-size: 11px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 40px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <h1>Caregiver Timesheet & Mileage</h1>
+            <p><strong>Period:</strong> ${displayMonth}</p>
+            <p><strong>Caregiver:</strong> ${user?.email || 'N/A'}</p>
           </div>
+          <div class="brand">
+            <h2 class="brand-title">MyTrackerApp</h2>
+            <p>Generated: ${currentDate}</p>
+          </div>
+        </div>
+        
+        <div class="summary-grid">
+          <div class="summary-box">
+            <div class="summary-label">Total Hours</div>
+            <p class="summary-value">${hoursWorked.toFixed(2)}</p>
+            <div class="summary-subtext">${totalDaysWorked} Shifts Logged</div>
+          </div>
+          <div class="summary-box">
+            <div class="summary-label">Total Mileage</div>
+            <p class="summary-value">${monthlyMiles.toFixed(1)} <span style="font-size: 14px; font-weight: 400;">mi</span></p>
+            <div class="summary-subtext">Across all trips</div>
+          </div>
+          <div class="summary-box highlight">
+            <div class="summary-label">Est. IRS Tax Deduction</div>
+            <p class="summary-value">$${estDeduction}</p>
+            <div class="summary-subtext">@ $0.67 per mile</div>
+          </div>
+        </div>
 
           ${notesHtml}
 
-          <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-            <thead>
-              <tr style="background: #0F172A; color: white;">
-                <th style="padding: 15px 12px; text-align: left; border-top-left-radius: 8px;">Date</th>
-                <th style="padding: 15px 12px; text-align: left;">Time In</th>
-                <th style="padding: 15px 12px; text-align: left;">Time Out</th>
-                <th style="padding: 15px 12px; text-align: left;">Hours</th>
-                <th style="padding: 15px 12px; text-align: left;">Miles</th>
-                <th style="padding: 15px 12px; text-align: left; border-top-right-radius: 8px; width: 35%;">Route / Locations</th>
-              </tr>
-            </thead>
-            <tbody>${htmlRows}</tbody>
-          </table>
-          
-          <div style="margin-top: 40px; text-align: center; color: #94A3B8; font-size: 12px;">
-            <p>Generated by Work Tracker Pro</p>
-            <p>Standard IRS Mileage Rate applied: $0.67/mile</p>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 12%;">Date</th>
+              <th style="width: 12%;">Time In</th>
+              <th style="width: 12%;">Time Out</th>
+              <th style="width: 10%;">Hours</th>
+              <th style="width: 10%;">Miles</th>
+              <th style="width: 44%;">Route Breakdown</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${htmlRows.length > 0 ? htmlRows : '<tr><td colspan="6" style="text-align: center; padding: 30px; color: #9ca3af; font-style: italic;">No records found for this month.</td></tr>'}
+          </tbody>
+          ${htmlRows.length > 0 ? `
+          <tfoot>
+            <tr class="table-footer">
+              <td colspan="3" style="text-align: right;">MONTHLY TOTALS:</td>
+              <td class="val-cell">${hoursWorked.toFixed(2)}</td>
+              <td class="miles-cell">${monthlyMiles.toFixed(1)}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+          ` : ''}
+        </table>
+        
+        <div class="signatures">
+          <div class="sig-block">
+            <div class="sig-line">Caregiver Signature</div>
+            <div class="sig-text">I certify that the hours and mileage accurately represent the work performed.</div>
           </div>
+          <div class="sig-block">
+            <div class="sig-line">Client / Employer Signature</div>
+            <div class="sig-text">Approved and verified.</div>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p style="margin: 0 0 5px 0;">Generated securely by MyTrackerApp</p>
+          <p style="margin: 0;">* Mileage deduction is estimated using the 2024 IRS standard mileage rate of 67 cents per mile.</p>
+        </div>
         </body>
       </html>
     `;
 
     try {
-      const file = await Print.printToFileAsync({ html: htmlContent });
-      await Sharing.shareAsync(file.uri);
+      if (Platform.OS === 'web') {
+        await Print.printAsync({ html: htmlContent });
+      } else {
+        const file = await Print.printToFileAsync({ html: htmlContent, base64: false });
+        await Sharing.shareAsync(file.uri, { 
+          mimeType: 'application/pdf', 
+          dialogTitle: `${displayMonth.replace(' ', '_')}_Timesheet`, 
+          UTI: 'com.adobe.pdf' 
+        });
+      }
     } catch (error) {
       Alert.alert("PDF Error", "Failed to generate PDF.");
     }
@@ -867,14 +987,19 @@ export default function WorkTracker() {
               <View style={{ marginTop: 25, borderTopWidth: 1, borderTopColor: '#334155', paddingTop: 15 }}>
                 <Text style={{ color: '#F8FAFC', fontWeight: 'bold', fontSize: 16, marginBottom: 10 }}>Active Family Viewers</Text>
                 {familyMembersList.map(member => (
-                  <View key={member.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View key={member.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 15 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981', marginRight: 10 }} />
-                      <Text style={{ color: '#F8FAFC', fontSize: 16 }}>{member.name}</Text>
+                      <View>
+                        <Text style={{ color: '#F8FAFC', fontSize: 16 }}>{member.name}</Text>
+                        <Text style={{ color: '#64748B', fontSize: 12 }}>
+                          {member.lastLogin ? new Date(member.lastLogin).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Unknown time'}
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={{ color: '#64748B', fontSize: 12 }}>
-                      {member.lastLogin ? new Date(member.lastLogin).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Unknown time'}
-                    </Text>
+                    <TouchableOpacity onPress={() => removeFamilyMember(member.id, member.name)} style={{ padding: 8, backgroundColor: '#ef444420', borderRadius: 8 }}>
+                      <Trash2 size={18} color="#EF4444" />
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
