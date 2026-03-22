@@ -59,19 +59,24 @@ export default function LoginScreen() {
 
   const handlePinLogin = async () => {
     if (!pin || pin.length < 4) {
+      if (Platform.OS === 'web') return window.alert('Please enter a valid PIN.');
       return Alert.alert('Error', 'Please enter a valid PIN.');
     }
     if (!familyName.trim()) {
+      if (Platform.OS === 'web') return window.alert('Please enter your name.');
       return Alert.alert('Error', 'Please enter your name.');
     }
     setLoading(true);
     try {
-      const q = query(collection(db, 'users'), where('familyPin', '==', pin));
+      const q = query(collection(db, 'users'), where('familyPin', '==', pin.trim()));
       const snapshot = await getDocs(q);
       
       if (snapshot.empty) {
-        Alert.alert('Invalid PIN', 'No account found with this Family PIN.');
         setLoading(false);
+        setTimeout(() => {
+          if (Platform.OS === 'web') window.alert('No account found with this Family PIN.');
+          else Alert.alert('Invalid PIN', 'No account found with this Family PIN.');
+        }, 100);
         return;
       }
       
@@ -85,7 +90,14 @@ export default function LoginScreen() {
         lastLogin: new Date().toISOString()
       });
     } catch (error: any) {
-      Alert.alert('PIN Login Failed', error.message);
+      setLoading(false);
+      setTimeout(() => {
+        if (Platform.OS === 'web') {
+          window.alert('PIN Login Failed: ' + error.message + '\n\n(Did you enable Anonymous Sign-in in Firebase?)');
+        } else {
+          Alert.alert('PIN Login Failed', error.message);
+        }
+      }, 100);
     } finally {
       setLoading(false);
     }

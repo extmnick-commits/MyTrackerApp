@@ -272,15 +272,23 @@ export default function WorkTracker() {
   const saveFamilyPin = async () => {
     if (!user) return;
     if (familyPin.length < 4) {
+      if (Platform.OS === 'web') return window.alert('PIN must be at least 4 characters long.');
       return Alert.alert('Invalid PIN', 'PIN must be at least 4 characters long.');
     }
     try {
       await setDoc(doc(db, 'users', user.uid), { familyPin }, { merge: true });
       setFamilyPinModalVisible(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success', 'Family PIN has been updated.');
+      setTimeout(() => {
+        if (Platform.OS === 'web') {
+          window.alert('Success: Family PIN has been updated.');
+        } else {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Alert.alert('Success', 'Family PIN has been updated.');
+        }
+      }, 100);
     } catch (error) {
-      Alert.alert('Error', 'Failed to update Family PIN.');
+      if (Platform.OS === 'web') window.alert('Failed to update Family PIN.');
+      else Alert.alert('Error', 'Failed to update Family PIN.');
     }
   };
 
@@ -293,18 +301,31 @@ export default function WorkTracker() {
         await updateDoc(userDocRef, { familyPin: deleteField() });
         // The onSnapshot listener on the user doc will automatically clear the local `familyPin` state.
         setFamilyPinModalVisible(false);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Success', 'Family PIN has been removed. Family access is now disabled.');
+        setTimeout(() => {
+          if (Platform.OS === 'web') {
+            window.alert('Success: Family PIN has been removed.');
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            Alert.alert('Success', 'Family PIN has been removed. Family access is now disabled.');
+          }
+        }, 100);
       } catch (error) {
-        Alert.alert('Error', 'Failed to remove Family PIN.');
+        if (Platform.OS === 'web') window.alert('Failed to remove Family PIN.');
+        else Alert.alert('Error', 'Failed to remove Family PIN.');
       }
     };
 
-    Alert.alert(
-      "Remove PIN?",
-      "This will disable family access immediately. Are you sure?",
-      [ { text: "Cancel", style: "cancel" }, { text: "Yes, Remove PIN", style: "destructive", onPress: executeRemove } ]
-    );
+    if (Platform.OS === 'web') {
+      if (window.confirm("This will disable family access immediately. Are you sure?")) {
+        executeRemove();
+      }
+    } else {
+      Alert.alert(
+        "Remove PIN?",
+        "This will disable family access immediately. Are you sure?",
+        [ { text: "Cancel", style: "cancel" }, { text: "Yes, Remove PIN", style: "destructive", onPress: executeRemove } ]
+      );
+    }
   };
 
   const saveNotes = async () => {
