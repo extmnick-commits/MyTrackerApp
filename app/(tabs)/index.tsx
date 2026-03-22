@@ -483,6 +483,19 @@ export default function WorkTracker() {
           .sig-text { font-size: 12px; color: #6b7280; font-style: italic; }
 
           .footer { text-align: center; font-size: 11px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 40px; }
+
+          @media print {
+            @page { margin: 15mm; }
+            body { padding: 0; margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+            table { page-break-inside: auto; width: 100%; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            td, th { page-break-inside: avoid; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
+            .signatures { page-break-inside: avoid; break-inside: avoid; margin-top: 40px; }
+            .summary-grid, .summary-box, .notes-section { page-break-inside: avoid; break-inside: avoid; }
+          }
         </style>
       </head>
       <body>
