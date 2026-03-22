@@ -7,7 +7,7 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 
 export {
   // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
+  ErrorBoundary
 } from 'expo-router';
 
 export const unstable_settings = {
@@ -27,11 +27,18 @@ function InitialLayout() {
     if (loading) return;
 
     const inTabsGroup = segments[0] === '(tabs)';
+    const inFamilyGroup = (segments[0] as string) === 'family';
 
-    if (user && !inTabsGroup) {
-      router.replace('/(tabs)');
-    } else if (!user && inTabsGroup) {
-      router.replace('/(auth)/login');
+    if (user) {
+      if (user.isAnonymous) {
+        if (!inFamilyGroup) router.replace('/family' as any);
+      } else {
+        if (!inTabsGroup) router.replace('/(tabs)');
+      }
+    } else {
+      if (inTabsGroup || inFamilyGroup) {
+        router.replace('/(auth)/login');
+      }
     }
   }, [user, loading, segments, router]);
 
@@ -59,6 +66,7 @@ function InitialLayout() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="family" options={{ headerShown: false }} />
     </Stack>
   );
 }

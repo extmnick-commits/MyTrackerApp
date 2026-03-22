@@ -3,7 +3,7 @@ import * as Print from 'expo-print';
 import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
-import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { CheckCircle2, ChevronRight, Clock, Edit2, FileText, LogOut, MapPin, Printer, Settings, Trash2, TrendingUp, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
@@ -57,6 +57,9 @@ export default function WorkTracker() {
   const [limitModalType, setLimitModalType] = useState<'hours' | 'miles' | null>(null);
   const [isSettingsVisible, setSettingsVisible] = useState(false);
   const [newLimitInput, setNewLimitInput] = useState('');
+  const [familyPin, setFamilyPin] = useState('');
+  const [isFamilyPinModalVisible, setFamilyPinModalVisible] = useState(false);
+  const [familyMembersList, setFamilyMembersList] = useState<{id: string, name: string, lastLogin?: string}[]>([]);
   const [selectedDate, setSelectedDate] = useState('');
   const [dayMiles, setDayMiles] = useState(0); 
   
@@ -92,6 +95,7 @@ export default function WorkTracker() {
         const data = docSnap.data();
         setMonthlyLimit(data.monthlyHourLimit || 75);
         setMonthlyMilesLimit(data.monthlyMilesLimit || 500);
+        setFamilyPin(data.familyPin || '');
       }
     });
     return () => unsubscribe();
@@ -116,6 +120,21 @@ export default function WorkTracker() {
       setMileageHistory(allTrips);
     });
 
+    return () => unsubscribe();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    
+    const q = query(collection(db, 'familyMembers'), where('caregiverId', '==', user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const members: {id: string, name: string, lastLogin?: string}[] = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        members.push({ id: docSnap.id, name: data.name || 'Unknown Viewer', lastLogin: data.lastLogin });
+      });
+      setFamilyMembersList(members);
+    });
     return () => unsubscribe();
   }, [user]);
 
@@ -248,6 +267,44 @@ export default function WorkTracker() {
         Alert.alert('Update Error', 'Failed to save new goal to your account.');
       }
     }
+  };
+
+  const saveFamilyPin = async () => {
+    if (!user) return;
+    if (familyPin.length < 4) {
+      return Alert.alert('Invalid PIN', 'PIN must be at least 4 characters long.');
+    }
+    try {
+      await setDoc(doc(db, 'users', user.uid), { familyPin }, { merge: true });
+      setFamilyPinModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', 'Family PIN has been updated.');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update Family PIN.');
+    }
+  };
+
+  const removeFamilyPin = () => {
+    if (!user) return;
+
+    const executeRemove = async () => {
+      try {
+        const userDocRef = doc(db, 'users', user.uid);
+        await updateDoc(userDocRef, { familyPin: deleteField() });
+        // The onSnapshot listener on the user doc will automatically clear the local `familyPin` state.
+        setFamilyPinModalVisible(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        Alert.alert('Success', 'Family PIN has been removed. Family access is now disabled.');
+      } catch (error) {
+        Alert.alert('Error', 'Failed to remove Family PIN.');
+      }
+    };
+
+    Alert.alert(
+      "Remove PIN?",
+      "This will disable family access immediately. Are you sure?",
+      [ { text: "Cancel", style: "cancel" }, { text: "Yes, Remove PIN", style: "destructive", onPress: executeRemove } ]
+    );
   };
 
   const saveNotes = async () => {
@@ -748,9 +805,59 @@ export default function WorkTracker() {
               <Text style={styles.modalTitle}>App Settings</Text>
               <TouchableOpacity onPress={() => setSettingsVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
             </View>
+            <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#3B82F6', marginBottom: 15, flexDirection: 'row', justifyContent: 'center' }]} onPress={() => { setSettingsVisible(false); setFamilyPinModalVisible(true); }}>
+              <Text style={styles.saveButtonText}>{familyPin ? 'Manage Family PIN' : 'Set Family Access PIN'}</Text>
+              {familyPin ? (
+                <View style={{ backgroundColor: '#10B981', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, marginLeft: 10, justifyContent: 'center' }}>
+                  <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold' }}>Active</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#EF4444' }]} onPress={promptWipeMonth}>
               <Text style={[styles.saveButtonText, { color: '#EF4444' }]}>Wipe {displayMonth} Data</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isFamilyPinModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Family Access PIN</Text>
+              <TouchableOpacity onPress={() => setFamilyPinModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            <Text style={{ color: '#94A3B8', marginBottom: 15 }}>Set a PIN to allow family members to view your work hours (miles are hidden).</Text>
+            <TextInput 
+              style={[styles.loginInput, { textAlign: 'center', fontSize: 24 }]} 
+              value={familyPin} 
+              onChangeText={setFamilyPin} 
+              placeholder="Enter PIN..." 
+              keyboardType="numeric"
+            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              {familyPin ? (
+                <TouchableOpacity style={[styles.saveButton, { flex: 1, backgroundColor: '#EF4444' }]} onPress={removeFamilyPin}><Text style={styles.saveButtonText}>Remove</Text></TouchableOpacity>
+              ) : null}
+              <TouchableOpacity style={[styles.saveButton, { flex: 2 }]} onPress={saveFamilyPin}><Text style={styles.saveButtonText}>Save PIN</Text></TouchableOpacity>
+            </View>
+
+            {familyMembersList.length > 0 && (
+              <View style={{ marginTop: 25, borderTopWidth: 1, borderTopColor: '#334155', paddingTop: 15 }}>
+                <Text style={{ color: '#F8FAFC', fontWeight: 'bold', fontSize: 16, marginBottom: 10 }}>Active Family Viewers</Text>
+                {familyMembersList.map(member => (
+                  <View key={member.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981', marginRight: 10 }} />
+                      <Text style={{ color: '#F8FAFC', fontSize: 16 }}>{member.name}</Text>
+                    </View>
+                    <Text style={{ color: '#64748B', fontSize: 12 }}>
+                      {member.lastLogin ? new Date(member.lastLogin).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Unknown time'}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         </View>
       </Modal>
