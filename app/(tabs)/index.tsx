@@ -39,6 +39,7 @@ export default function WorkTracker() {
 
   // Current Stats
   const [hoursWorked, setHoursWorked] = useState(0);
+  const [projectedHours, setProjectedHours] = useState(0);
   const [monthlyMiles, setMonthlyMiles] = useState(0); 
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [weeklyTotalsList, setWeeklyTotalsList] = useState<{ week: string; hrs: number; miles: number }[]>([]);
@@ -76,6 +77,7 @@ export default function WorkTracker() {
   const [outMin, setOutMin] = useState('00');
   const [outAmPm, setOutAmPm] = useState('PM');
   const [calculatedShift, setCalculatedShift] = useState(0);
+  const [isProjectedShift, setIsProjectedShift] = useState(false);
 
   const now = new Date();
   const currentMonthYear = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -176,14 +178,21 @@ export default function WorkTracker() {
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
     const allDates = new Set([...Object.keys(workLogs), ...tripsThisMonth.map(t => t.date)]);
     
-    let totalHours = 0;
+    let totalActual = 0;
+    let totalProjected = 0;
     const weekGroups: Record<string, { hrs: number; miles: number }> = {};
     const dailyArray: { date: string; hrs: number; miles: number }[] = [];
 
     allDates.forEach(dateStr => {
       const log = workLogs[dateStr] || {};
       const hrsVal = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
-      totalHours += hrsVal;
+      const isProj = typeof log === 'object' ? !!log.isProjected : false;
+
+      if (isProj) {
+        totalProjected += hrsVal;
+      } else {
+        totalActual += hrsVal;
+      }
 
       const tripsThisDay = mileageHistory.filter(t => t.date === dateStr);
       const dayMilesVal = tripsThisDay.reduce((sum, t) => sum + t.miles, 0);
@@ -207,7 +216,8 @@ export default function WorkTracker() {
       }
     });
     
-    setHoursWorked(totalHours);
+    setHoursWorked(totalActual);
+    setProjectedHours(totalActual + totalProjected);
 
     const weeklyArray = Object.keys(weekGroups).map(key => ({
       week: key,
@@ -408,6 +418,8 @@ export default function WorkTracker() {
       const log = workLogs[date] || {};
       const dayTrips = tripsThisMonth.filter(t => t.date === date);
       const dayMiles = dayTrips.reduce((sum, t) => sum + t.miles, 0);
+      const isProj = !!log.isProjected;
+      const dayOfWeek = new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' });
       
       // Construct the route timeline string
       let routeHtml = '<span style="color: #9ca3af; font-style: italic;">No travel logged</span>';
@@ -429,7 +441,7 @@ export default function WorkTracker() {
 
       return `
         <tr>
-          <td class="val-cell">${date}</td>
+          <td class="val-cell">${date} (${dayOfWeek}) ${isProj ? '<br><span style="color:#F59E0B; font-size:10px;">(Projected)</span>' : ''}</td>
           <td>${log.in || '--'}</td>
           <td>${log.out || '--'}</td>
           <td class="val-cell">${log.totalHours ? log.totalHours.toFixed(2) : '0'}</td>
@@ -653,9 +665,11 @@ export default function WorkTracker() {
       setOutHour(log.out.split(':')[0]);
       setOutMin(log.out.split(':')[1].split(' ')[0]);
       setOutAmPm(log.out.includes('PM') ? 'PM' : 'AM');
+      setIsProjectedShift(!!log.isProjected);
     } else {
       setInHour('09'); setInMin('00'); setInAmPm('AM');
       setOutHour('05'); setOutMin('00'); setOutAmPm('PM');
+      setIsProjectedShift(false);
     }
     setModalVisible(true);
   };
@@ -669,7 +683,7 @@ export default function WorkTracker() {
       const inTime = `${inHour.padStart(2, '0')}:${inMin.padStart(2, '0')} ${inAmPm}`;
       const outTime = `${outHour.padStart(2, '0')}:${outMin.padStart(2, '0')} ${outAmPm}`;
       await setDoc(docRef, {
-        [selectedDate]: { totalHours: calculatedShift, in: inTime, out: outTime, miles: dayMiles }
+        [selectedDate]: { totalHours: calculatedShift, in: inTime, out: outTime, miles: dayMiles, isProjected: isProjectedShift }
       }, { merge: true });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
@@ -741,50 +755,21 @@ export default function WorkTracker() {
     }
   };
 
-  const promptWipeMonth = () => {
-    setSettingsVisible(false); 
-
-    const executeWipe = async () => {
-      if (!user) return;
-      try {
-        const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
-        await deleteDoc(docRef);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      } catch (error: any) {
-        if (Platform.OS === 'web') {
-          window.alert(error.message);
-        } else {
-          Alert.alert("Wipe Error", error.message);
-        }
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      setTimeout(() => {
-        if (window.confirm(`Are you sure you want to delete ALL shifts for ${displayMonth}? This cannot be undone.`)) {
-          executeWipe();
-        }
-      }, 100);
-    } else {
-      Alert.alert(
-        "Wipe Calendar",
-        `Are you sure you want to delete ALL shifts for ${displayMonth}? This cannot be undone.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Yes, Wipe It", style: "destructive", onPress: executeWipe }
-        ]
-      );
-    }
-  };
-
   const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
   const colorHours = hoursWorked > monthlyLimit ? "#EF4444" : "#3B82F6";
+  const progressProjected = Math.min((projectedHours / monthlyLimit) * 100, 100);
   const progressMiles = Math.min((monthlyMiles / monthlyMilesLimit) * 100, 100);
   const colorMiles = monthlyMiles > monthlyMilesLimit ? "#EF4444" : "#0a7ea4";
 
   const markedDates: any = {};
-  Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
-  if (selectedDate) markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: '#3B82F6' };
+  Object.keys(workLogs).forEach(date => {
+    const isProj = workLogs[date]?.isProjected;
+    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6' };
+  });
+  if (selectedDate) {
+    const isProj = workLogs[selectedDate]?.isProjected;
+    markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: isProj ? '#F59E0B' : '#3B82F6' };
+  }
 
   if (!user) {
     return (
@@ -809,28 +794,38 @@ export default function WorkTracker() {
         </View>
         
         <View style={styles.dashboardRow}>
-          <TouchableOpacity style={styles.dashboardCardHalf} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
-            <Svg height="140" width="140" viewBox="0 0 100 100">
-              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
-              <Circle cx="50" cy="50" r="45" stroke={colorHours} strokeWidth="8" fill="none"
-                strokeDasharray={`${progressHours * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
+            <Svg height="100" width="100" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="40" stroke={colorHours} strokeWidth="8" fill="none"
+                strokeDasharray={`${progressHours * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{hoursWorked.toFixed(1)}</Text>
-              <Text style={styles.limitTextSmall}>/ {monthlyLimit} h</Text>
             </View>
-            <Text style={styles.chartLabel}>Hours</Text>
+            <Text style={styles.chartLabel}>Completed Hours</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dashboardCardHalf} onPress={() => { setNewLimitInput(monthlyMilesLimit.toString()); setLimitModalType('miles'); }}>
-            <Svg height="140" width="140" viewBox="0 0 100 100">
-              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
-              <Circle cx="50" cy="50" r="45" stroke={colorMiles} strokeWidth="8" fill="none"
-                strokeDasharray={`${progressMiles * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
+            <Svg height="100" width="100" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="40" stroke="#F59E0B" strokeWidth="8" fill="none"
+                strokeDasharray={`${progressProjected * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+            </Svg>
+            <View style={styles.centerTextSmall}>
+              <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
+            </View>
+            <Text style={[styles.chartLabel, { color: '#F59E0B' }]}>Projected</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyMilesLimit.toString()); setLimitModalType('miles'); }}>
+            <Svg height="100" width="100" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="40" stroke={colorMiles} strokeWidth="8" fill="none"
+                strokeDasharray={`${progressMiles * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{monthlyMiles.toFixed(1)}</Text>
-              <Text style={styles.limitTextSmall}>/ {monthlyMilesLimit} mi</Text>
             </View>
             <Text style={[styles.chartLabel, { color: '#0a7ea4' }]}>Miles</Text>
           </TouchableOpacity>
@@ -873,10 +868,12 @@ export default function WorkTracker() {
             {dailyTotalsList.length > 0 && (
               <View style={{ marginTop: weeklyTotalsList.length > 0 ? 30 : 0 }}>
                 <Text style={styles.weeklyBreakdownTitle}>Daily Breakdown</Text>
-                {dailyTotalsList.map((item, index) => (
+                {dailyTotalsList.map((item, index) => {
+                  const dayOfWeek = new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+                  return (
                   <TouchableOpacity key={index} style={styles.weekRow} onPress={() => handleDayPress({ dateString: item.date })} activeOpacity={0.7}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={styles.weekLabel}>{item.date}</Text>
+                      <Text style={styles.weekLabel}>{item.date} ({dayOfWeek})</Text>
                       <ChevronRight size={16} color="#475569" style={{ marginLeft: 5 }} />
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -885,7 +882,7 @@ export default function WorkTracker() {
                       <Text style={[styles.weekHours, { color: '#0a7ea4' }]}>{item.miles.toFixed(1)} mi</Text>
                     </View>
                   </TouchableOpacity>
-                ))}
+                )})}
               </View>
             )}
           </View>
@@ -917,7 +914,7 @@ export default function WorkTracker() {
                 return (
                   <View key={trip.id} style={styles.timelineCard}>
                     <View style={styles.timelineCardHeader}>
-                      <Text style={styles.timelineDate}>{trip.date}</Text>
+                      <Text style={styles.timelineDate}>{trip.date} {trip.date ? `(${new Date(trip.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })})` : ''}</Text>
                       <View style={styles.timelineBadge}><Text style={styles.timelineBadgeText}>{trip.miles} mi</Text></View>
                     </View>
 
@@ -1014,9 +1011,6 @@ export default function WorkTracker() {
                 </View>
               ) : null}
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#1E293B', borderWidth: 1, borderColor: '#EF4444' }]} onPress={promptWipeMonth}>
-              <Text style={[styles.saveButtonText, { color: '#EF4444' }]}>Wipe {displayMonth} Data</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -1077,7 +1071,7 @@ export default function WorkTracker() {
 
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Shift: {selectedDate}</Text>
+              <Text style={styles.modalTitle}>Shift: {selectedDate} {selectedDate ? `(${new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })})` : ''}</Text>
               <View style={{ flexDirection: 'row' }}>
                 {workLogs[selectedDate] && <TouchableOpacity onPress={deleteShift} style={{ marginRight: 20 }}><Trash2 color="#EF4444" size={24} /></TouchableOpacity>}
                 <TouchableOpacity onPress={() => setModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
@@ -1095,6 +1089,16 @@ export default function WorkTracker() {
                 </View>
               </View>
             ))}
+
+            <TouchableOpacity 
+              style={[styles.timeRow, { justifyContent: 'center', backgroundColor: isProjectedShift ? '#F59E0B20' : '#1E293B', borderColor: isProjectedShift ? '#F59E0B' : 'transparent', borderWidth: 1 }]} 
+              onPress={() => setIsProjectedShift(!isProjectedShift)}
+            >
+              <CheckCircle2 color={isProjectedShift ? "#F59E0B" : "#475569"} size={20} style={{ marginRight: 10 }} />
+              <Text style={[styles.timeLabel, { color: isProjectedShift ? '#F59E0B' : '#94A3B8', fontSize: 15 }]}>
+                {isProjectedShift ? 'Projected Shift (Tap for Actual)' : 'Actual Shift (Tap for Projected)'}
+              </Text>
+            </TouchableOpacity>
             
             <View style={styles.durationContainer}>
               <CheckCircle2 color="#3B82F6" size={20} />
@@ -1140,10 +1144,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
   dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
-  centerTextSmall: { position: 'absolute', top: 40, alignItems: 'center' },
-  hoursTextSmall: { fontSize: 30, fontWeight: 'bold', color: '#F8FAFC' },
+  dashboardCardThird: { alignItems: 'center', position: 'relative', width: '32%' },
+  centerTextSmall: { position: 'absolute', top: 34, alignItems: 'center' },
+  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
   limitTextSmall: { fontSize: 12, color: '#94A3B8' },
-  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 16 },
+  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 8, fontSize: 14 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
   statBox: { backgroundColor: '#1E293B', padding: 16, borderRadius: 16, width: '48%', alignItems: 'center' },
   statValue: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },

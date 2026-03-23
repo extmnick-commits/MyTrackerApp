@@ -2,17 +2,17 @@ import { addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, setDoc,
 import { ArrowDown, ArrowUp, Calculator, Calendar as CalendarIcon, ChevronLeft, ChevronRight, History, Map, MapPin, Plus, Save, Search, Trash2, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    FlatList,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
@@ -447,7 +447,7 @@ export default function TabTwoScreen() {
           return (
             <View key={trip.id} style={styles.premiumHistoryItem}>
               <View style={styles.premiumHistoryHeader}>
-                <Text style={styles.historyDate}>{trip.date}</Text>
+                <Text style={styles.historyDate}>{trip.date} {trip.date ? `(${new Date(trip.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })})` : ''}</Text>
                 <View style={styles.mileageBadge}><Text style={styles.mileageBadgeText}>{trip.miles.toFixed(1)} mi</Text></View>
               </View>
               {hasStops ? (

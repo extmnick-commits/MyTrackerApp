@@ -27,6 +27,7 @@ export default function FamilyDashboard() {
 
   // Current Stats
   const [hoursWorked, setHoursWorked] = useState(0);
+  const [projectedHours, setProjectedHours] = useState(0);
   const [weeklyTotal, setWeeklyTotal] = useState(0);
   const [weeklyTotalsList, setWeeklyTotalsList] = useState<{ week: string; hrs: number }[]>([]);
   const [dailyTotalsList, setDailyTotalsList] = useState<{ date: string; hrs: number }[]>([]);
@@ -80,16 +81,23 @@ export default function FamilyDashboard() {
 
   useEffect(() => {
     const allDates = Object.keys(workLogs);
-    let totalHours = 0;
+    let totalActual = 0;
+    let totalProjected = 0;
     const weekGroups: Record<string, number> = {};
     const dailyArray: { date: string; hrs: number }[] = [];
 
     allDates.forEach(dateStr => {
       const log = workLogs[dateStr] || {};
       const hrsVal = typeof log === 'object' ? (log.totalHours || 0) : Number(log);
+      const isProj = typeof log === 'object' ? !!log.isProjected : false;
       
+      if (isProj) {
+        totalProjected += hrsVal;
+      } else {
+        totalActual += hrsVal;
+      }
+
       if (hrsVal > 0) {
-        totalHours += hrsVal;
         dailyArray.push({ date: dateStr, hrs: hrsVal });
 
         const dayOfMonth = parseInt(dateStr.split('-')[2]);
@@ -100,7 +108,8 @@ export default function FamilyDashboard() {
       }
     });
     
-    setHoursWorked(totalHours);
+    setHoursWorked(totalActual);
+    setProjectedHours(totalActual + totalProjected);
 
     const weeklyArray = Object.keys(weekGroups).map(key => ({
       week: key,
@@ -149,9 +158,13 @@ export default function FamilyDashboard() {
 
   const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
   const colorHours = hoursWorked > monthlyLimit ? "#10b981" : "#3B82F6"; // Use green if they hit goal
+  const progressProjected = Math.min((projectedHours / monthlyLimit) * 100, 100);
 
   const markedDates: any = {};
-  Object.keys(workLogs).forEach(date => markedDates[date] = { marked: true, dotColor: '#3B82F6' });
+  Object.keys(workLogs).forEach(date => {
+    const isProj = workLogs[date]?.isProjected;
+    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6' };
+  });
 
   if (!user || !caregiverId) {
     return (
@@ -178,7 +191,7 @@ export default function FamilyDashboard() {
         
         <View style={styles.dashboardRow}>
           <View style={styles.dashboardCardHalf}>
-            <Svg height="160" width="160" viewBox="0 0 100 100">
+            <Svg height="140" width="140" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="45" stroke={colorHours} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressHours * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
@@ -187,7 +200,19 @@ export default function FamilyDashboard() {
               <Text style={styles.hoursTextSmall}>{hoursWorked.toFixed(1)}</Text>
               <Text style={styles.limitTextSmall}>/ {monthlyLimit} h</Text>
             </View>
-            <Text style={styles.chartLabel}>Hours Worked</Text>
+            <Text style={styles.chartLabel}>Completed Hours</Text>
+          </View>
+
+          <View style={styles.dashboardCardHalf}>
+            <Svg height="140" width="140" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="8" fill="none"
+                strokeDasharray={`${progressProjected * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+            </Svg>
+            <View style={styles.centerTextSmall}>
+              <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
+            </View>
+            <Text style={[styles.chartLabel, { color: '#F59E0B' }]}>Projected</Text>
           </View>
         </View>
         
@@ -224,12 +249,14 @@ export default function FamilyDashboard() {
             {dailyTotalsList.length > 0 && (
               <View style={{ marginTop: weeklyTotalsList.length > 0 ? 30 : 0 }}>
                 <Text style={styles.weeklyBreakdownTitle}>Daily Breakdown</Text>
-                {dailyTotalsList.map((item, index) => (
+                {dailyTotalsList.map((item, index) => {
+                  const dayOfWeek = new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+                  return (
                   <View key={index} style={styles.weekRow}>
-                    <Text style={styles.weekLabel}>{item.date}</Text>
+                    <Text style={styles.weekLabel}>{item.date} ({dayOfWeek})</Text>
                     <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
                   </View>
-                ))}
+                )})}
               </View>
             )}
           </View>
@@ -253,7 +280,7 @@ export default function FamilyDashboard() {
               weekLogs.map((log, index) => (
                 <View key={index} style={styles.timelineCard}>
                   <View style={styles.timelineCardHeader}>
-                    <Text style={styles.timelineDate}>{log.date}</Text>
+                    <Text style={styles.timelineDate}>{log.date} {log.date ? `(${new Date(log.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' })})` : ''}</Text>
                     <View style={styles.timelineBadge}><Text style={styles.timelineBadgeText}>{log.hrs.toFixed(1)} hrs</Text></View>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -282,10 +309,10 @@ const styles = StyleSheet.create({
   },
   header: { padding: 24, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
-  dashboardRow: { flexDirection: 'row', justifyContent: 'center', marginVertical: 10 },
-  dashboardCardHalf: { alignItems: 'center', position: 'relative' },
-  centerTextSmall: { position: 'absolute', top: 50, alignItems: 'center' },
-  hoursTextSmall: { fontSize: 36, fontWeight: 'bold', color: '#F8FAFC' },
+  dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
+  dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
+  centerTextSmall: { position: 'absolute', top: 44, alignItems: 'center' },
+  hoursTextSmall: { fontSize: 30, fontWeight: 'bold', color: '#F8FAFC' },
   limitTextSmall: { fontSize: 14, color: '#94A3B8' },
   chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 18 },
   statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
