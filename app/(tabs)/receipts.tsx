@@ -5,12 +5,30 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { Camera, CheckCircle2, ChevronLeft, FileText, Folder, FolderPlus, Link as LinkIcon, LogOut, Star, UploadCloud, X } from 'lucide-react-native';
+import { Camera, CheckCircle2, ChevronLeft, FileText, Folder, FolderPlus, Link as LinkIcon, LogOut, UploadCloud, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Linking, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, FlatList, Image, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Required for web browser functionality in auth session
 WebBrowser.maybeCompleteAuthSession();
+
+const SkeletonCard = () => {
+  const fadeAnim = React.useRef(new Animated.Value(0.3)).current;
+  React.useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(fadeAnim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 0.3, duration: 800, useNativeDriver: true })
+      ])
+    ).start();
+  }, [fadeAnim]);
+  return (
+    <Animated.View style={[styles.gridCard, { opacity: fadeAnim, marginBottom: 16 }]}>
+      <View style={[styles.thumbnailContainer, { backgroundColor: '#1E293B' }]} />
+      <View style={{ padding: 12 }}><View style={{ height: 16, backgroundColor: '#334155', borderRadius: 4, width: '80%' }} /></View>
+    </Animated.View>
+  );
+};
 
 export default function ReceiptsScreen() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -72,7 +90,7 @@ export default function ReceiptsScreen() {
         } else {
           setNeedsSetup(false);
           setDefaultFolderId(savedId);
-          if (folderStack.length === 1) setFolderStack(['root', savedId]);
+          if (folderStack.length === 1) setFolderStack([savedId]);
         }
       }
     };
@@ -97,7 +115,7 @@ export default function ReceiptsScreen() {
   const selectMasterFolder = async (id: string) => {
     await AsyncStorage.setItem('defaultFolderId', id);
     setDefaultFolderId(id);
-    setFolderStack(['root', id]);
+    setFolderStack([id]);
     setNeedsSetup(false);
   };
 
@@ -260,17 +278,6 @@ export default function ReceiptsScreen() {
     }
   };
 
-  const saveDefaultFolder = async () => {
-    const currentFolderId = folderStack[folderStack.length - 1];
-    try {
-      await AsyncStorage.setItem('defaultFolderId', currentFolderId);
-      setDefaultFolderId(currentFolderId);
-      Alert.alert('Success', 'This folder is now your default!');
-    } catch (e) {
-      Alert.alert('Error', 'Could not save default folder.');
-    }
-  };
-
   const confirmDelete = () => {
     Alert.alert('Delete Item', `Are you sure you want to delete "${selectedItem?.name}"? This cannot be undone.`, [
       { text: 'Cancel', style: 'cancel' },
@@ -326,10 +333,12 @@ export default function ReceiptsScreen() {
     }
   };
 
-  const openLink = (url: string) => {
-    Linking.openURL(url).catch(() => {
+  const openLink = async (url: string) => {
+    try {
+      await WebBrowser.openBrowserAsync(url, { presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN });
+    } catch (error) {
       Alert.alert('Error', 'Could not open the link.');
-    });
+    }
   };
 
   const handleChangeMasterFolder = () => {
@@ -462,18 +471,13 @@ export default function ReceiptsScreen() {
                 <FolderPlus size={18} color="#10B981" style={{ marginRight: 4 }} />
                 <Text style={[styles.actionButtonText, { color: '#10B981' }]}>New Folder</Text>
               </TouchableOpacity>
-              
-              {folderStack.length > 1 && folderStack[folderStack.length - 1] !== defaultFolderId && (
-                <TouchableOpacity onPress={saveDefaultFolder} style={styles.actionButton}>
-                  <Star size={18} color="#F59E0B" style={{ marginRight: 4 }} />
-                  <Text style={[styles.actionButtonText, { color: '#F59E0B' }]}>Set Default</Text>
-                </TouchableOpacity>
-              )}
             </View>
           </View>
 
           {loading && !files.length ? (
-            <ActivityIndicator size="large" color="#3B82F6" style={{ marginTop: 40 }} />
+            <View style={styles.skeletonContainer}>
+              {[1, 2, 3, 4, 5, 6].map(key => <SkeletonCard key={key} />)}
+            </View>
           ) : (
             <FlatList 
               data={files} 
@@ -605,6 +609,7 @@ const styles = StyleSheet.create({
   emptyStateContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
   emptyStateTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
   emptyStateSub: { color: '#94A3B8', fontSize: 14, textAlign: 'center', paddingHorizontal: 20, lineHeight: 20 },
+  skeletonContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingBottom: 20 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#1E293B', borderRadius: 20, padding: 24 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
