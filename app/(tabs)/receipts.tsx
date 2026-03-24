@@ -3,10 +3,11 @@ import * as AuthSession from 'expo-auth-session';
 import * as Google from 'expo-auth-session/providers/google';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import { useFocusEffect } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { Camera, ChevronLeft, FileText, Folder, FolderPlus, Link as LinkIcon, LogOut, Star, UploadCloud, X } from 'lucide-react-native';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Linking, Modal, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Camera, CheckCircle2, ChevronLeft, FileText, Folder, FolderPlus, Link as LinkIcon, LogOut, Star, UploadCloud, X } from 'lucide-react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Image, Linking, Modal, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Required for web browser functionality in auth session
 WebBrowser.maybeCompleteAuthSession();
@@ -41,9 +42,23 @@ export default function ReceiptsScreen() {
     ],
   });
 
+  useFocusEffect(
+    useCallback(() => {
+      const loadToken = async () => {
+        const storedToken = await AsyncStorage.getItem('googleDriveToken');
+        if (storedToken !== accessToken) {
+          setAccessToken(storedToken);
+        }
+      };
+      loadToken();
+    }, [accessToken])
+  );
+
   useEffect(() => {
     if (response?.type === 'success') {
-      setAccessToken(response.authentication?.accessToken || null);
+      const token = response.authentication?.accessToken || null;
+      if (token) AsyncStorage.setItem('googleDriveToken', token);
+      setAccessToken(token);
     }
   }, [response]);
 
@@ -107,6 +122,13 @@ export default function ReceiptsScreen() {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,webViewLink,thumbnailLink)`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
+
+      if (res.status === 401) {
+        await AsyncStorage.removeItem('googleDriveToken');
+        setAccessToken(null);
+        return;
+      }
+
       const data = await res.json();
       if (data.files) {
         setFiles(data.files);
@@ -310,6 +332,22 @@ export default function ReceiptsScreen() {
     });
   };
 
+  const handleChangeMasterFolder = () => {
+    Alert.alert('Change Master Folder', 'Are you sure you want to select a new master folder for your receipts?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Change',
+        onPress: async () => {
+          await AsyncStorage.removeItem('defaultFolderId');
+          setDefaultFolderId(null);
+          setNeedsSetup(true);
+          setFolderStack(['root']);
+          if (accessToken) fetchSetupFolders(accessToken);
+        }
+      }
+    ]);
+  };
+
   const handleSignOut = () => {
     Alert.alert('Disconnect Drive', 'Are you sure you want to sign out of Google Drive?', [
       { text: 'Cancel', style: 'cancel' },
@@ -318,6 +356,7 @@ export default function ReceiptsScreen() {
         style: 'destructive',
         onPress: async () => {
           await AsyncStorage.removeItem('defaultFolderId');
+          await AsyncStorage.removeItem('googleDriveToken');
           setAccessToken(null);
           setFiles([]);
           setFolderStack(['root']);
@@ -329,14 +368,36 @@ export default function ReceiptsScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, Platform.OS === 'web' && styles.webContainer]}>
       <View style={styles.header}>
-        <Text style={styles.title}>Receipts</Text>
-        {accessToken && (
-          <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-            <LogOut size={24} color="#EF4444" />
-          </TouchableOpacity>
-        )}
+        <View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.title}>Receipts</Text>
+            {accessToken && !needsSetup && (
+              <View style={{ backgroundColor: '#1E293B', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginLeft: 10 }}>
+                <Text style={{ color: '#3B82F6', fontSize: 14, fontWeight: 'bold' }}>{files.length} {files.length === 1 ? 'item' : 'items'}</Text>
+              </View>
+            )}
+          </View>
+          {accessToken && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 6 }}>
+              <CheckCircle2 size={12} color="#10B981" style={{ marginRight: 4 }} />
+              <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '600' }}>Connected to Drive</Text>
+            </View>
+          )}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {accessToken && (
+            <TouchableOpacity onPress={handleChangeMasterFolder} style={[styles.signOutButton, { backgroundColor: '#3b82f620' }]}>
+              <Folder size={24} color="#3B82F6" />
+            </TouchableOpacity>
+          )}
+          {accessToken && (
+            <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
+              <LogOut size={24} color="#EF4444" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {!accessToken ? (
@@ -378,13 +439,13 @@ export default function ReceiptsScreen() {
         <View style={styles.content}>
           <View style={styles.uploadRow}>
             <TouchableOpacity style={styles.uploadButtonHalf} onPress={takePhoto} disabled={loading}>
-              <Camera size={24} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.uploadButtonText}>Take Photo</Text>
+              {loading ? <ActivityIndicator size="small" color="#FFF" style={{ marginRight: 8 }} /> : <Camera size={24} color="#FFF" style={{ marginRight: 8 }} />}
+              <Text style={styles.uploadButtonText}>{loading ? 'Processing' : 'Take Photo'}</Text>
             </TouchableOpacity>
             
             <TouchableOpacity style={styles.uploadButtonHalf} onPress={uploadReceipt} disabled={loading}>
-              <UploadCloud size={24} color="#FFF" style={{ marginRight: 8 }} />
-              <Text style={styles.uploadButtonText}>Upload File</Text>
+              {loading ? <ActivityIndicator size="small" color="#FFF" style={{ marginRight: 8 }} /> : <UploadCloud size={24} color="#FFF" style={{ marginRight: 8 }} />}
+              <Text style={styles.uploadButtonText}>{loading ? 'Processing' : 'Upload File'}</Text>
             </TouchableOpacity>
           </View>
 
@@ -420,7 +481,13 @@ export default function ReceiptsScreen() {
               numColumns={2}
               columnWrapperStyle={styles.rowWrapper}
               contentContainerStyle={{ paddingBottom: 20 }}
-              ListEmptyComponent={<Text style={styles.emptyText}>No receipts found. Upload your first one above!</Text>}
+              ListEmptyComponent={
+                <View style={styles.emptyStateContainer}>
+                  <FileText size={60} color="#334155" style={{ marginBottom: 15 }} />
+                  <Text style={styles.emptyStateTitle}>No files found</Text>
+                  <Text style={styles.emptyStateSub}>Upload your first receipt or create a folder to get started!</Text>
+                </View>
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity 
                   style={styles.gridCard} 
@@ -506,6 +573,14 @@ export default function ReceiptsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0F172A' },
+  webContainer: {
+    maxWidth: 800,
+    width: '100%',
+    marginHorizontal: 'auto',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#1E293B'
+  },
   header: { padding: 24, paddingTop: 60, borderBottomWidth: 1, borderBottomColor: '#1E293B', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
   signOutButton: { padding: 10, backgroundColor: '#ef444420', borderRadius: 12 },
@@ -515,7 +590,7 @@ const styles = StyleSheet.create({
   connectButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   content: { flex: 1, padding: 24 },
   uploadRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 10 },
-  uploadButtonHalf: { flex: 1, flexDirection: 'row', backgroundColor: '#10B981', padding: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  uploadButtonHalf: { flex: 1, flexDirection: 'row', backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 4 },
   uploadButtonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   rightActions: { flexDirection: 'row', gap: 10 },
@@ -527,7 +602,9 @@ const styles = StyleSheet.create({
   thumbnail: { width: '100%', height: '100%' },
   cardInfo: { padding: 12 },
   fileName: { color: '#F8FAFC', fontSize: 14, fontWeight: '500', lineHeight: 20 },
-  emptyText: { color: '#94A3B8', textAlign: 'center', marginTop: 40, fontSize: 16, fontStyle: 'italic' },
+  emptyStateContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
+  emptyStateTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
+  emptyStateSub: { color: '#94A3B8', fontSize: 14, textAlign: 'center', paddingHorizontal: 20, lineHeight: 20 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#1E293B', borderRadius: 20, padding: 24 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },

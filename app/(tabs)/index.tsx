@@ -4,13 +4,14 @@ import * as Google from 'expo-auth-session/providers/google';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import * as MailComposer from 'expo-mail-composer';
 import * as Print from 'expo-print';
-import { router, useNavigation } from 'expo-router';
+import { router, useFocusEffect, useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
 import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { Camera, CheckCircle2, ChevronRight, Clock, Edit2, FileText, LogOut, MapPin, Paperclip, Printer, Settings, Trash2, TrendingUp, UploadCloud, X } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -67,6 +68,12 @@ export default function WorkTracker() {
   const [familyPin, setFamilyPin] = useState('');
   const [isFamilyPinModalVisible, setFamilyPinModalVisible] = useState(false);
   const [familyMembersList, setFamilyMembersList] = useState<{id: string, name: string, lastLogin?: string}[]>([]);
+
+  // App Settings State
+  const [companyName, setCompanyName] = useState('');
+  const [isCompanyModalVisible, setCompanyModalVisible] = useState(false);
+  const [companyNameInput, setCompanyNameInput] = useState('');
+
   const [selectedDate, setSelectedDate] = useState('');
   const [dayMiles, setDayMiles] = useState(0); 
   
@@ -89,6 +96,8 @@ export default function WorkTracker() {
   const [googleToken, setGoogleToken] = useState<string | null>(null);
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const [monthReceipts, setMonthReceipts] = useState<Record<string, any[]>>({});
+  const [receiptCategory, setReceiptCategory] = useState('Food');
+  const [customCategory, setCustomCategory] = useState('');
 
   const redirectUri = AuthSession.makeRedirectUri();
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -109,9 +118,24 @@ export default function WorkTracker() {
   const [yearStr, monthStr] = viewedMonthYear.split('-');
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
 
+  // Keep Google Token perfectly in sync across tabs!
+  useFocusEffect(
+    useCallback(() => {
+      const loadToken = async () => {
+        const storedToken = await AsyncStorage.getItem('googleDriveToken');
+        if (storedToken !== googleToken) {
+          setGoogleToken(storedToken);
+        }
+      };
+      loadToken();
+    }, [googleToken])
+  );
+
   useEffect(() => {
     if (response?.type === 'success') {
-      setGoogleToken(response.authentication?.accessToken || null);
+      const token = response.authentication?.accessToken || null;
+      if (token) AsyncStorage.setItem('googleDriveToken', token);
+      setGoogleToken(token);
     }
   }, [response]);
 
@@ -123,25 +147,46 @@ export default function WorkTracker() {
 
       const folderName = `Receipts - ${viewedMonthYear}`;
       const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${folderName}' and '${masterFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, { headers: { Authorization: `Bearer ${googleToken}` } });
+      
+      // If the session token is expired, clear it out.
+      if (searchRes.status === 401) {
+        await AsyncStorage.removeItem('googleDriveToken');
+        setGoogleToken(null);
+        return;
+      }
+
       const searchData = await searchRes.json();
       
       if (!searchData.files || searchData.files.length === 0) return setMonthReceipts({});
       
       const folderId = searchData.files[0].id;
-      const filesRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents and trashed=false`)}&fields=files(id,name,webViewLink)`, { headers: { Authorization: `Bearer ${googleToken}` } });
-      const filesData = await filesRes.json();
-      
-      const receiptsByDate: Record<string, any[]> = {};
-      if (filesData.files) {
-        filesData.files.forEach((file: any) => {
-          const match = file.name.match(/^\d{4}-\d{2}-\d{2}/);
-          if (match) {
-            const date = match[0];
-            if (!receiptsByDate[date]) receiptsByDate[date] = [];
-            receiptsByDate[date].push(file);
+      const itemsRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents and trashed=false`)}&fields=files(id,name,mimeType,webViewLink)`, { headers: { Authorization: `Bearer ${googleToken}` } });
+      const itemsData = await itemsRes.json();
+
+      let allFiles: any[] = [];
+      if (itemsData.files) {
+        const subFolderIds = itemsData.files.filter((f: any) => f.mimeType === 'application/vnd.google-apps.folder').map((f: any) => f.id);
+        allFiles = itemsData.files.filter((f: any) => f.mimeType !== 'application/vnd.google-apps.folder');
+
+        if (subFolderIds.length > 0) {
+          const parentQueries = subFolderIds.map((id: string) => `'${id}' in parents`).join(' or ');
+          const subFilesRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`(${parentQueries}) and trashed=false`)}&fields=files(id,name,webViewLink)`, { headers: { Authorization: `Bearer ${googleToken}` } });
+          const subFilesData = await subFilesRes.json();
+          if (subFilesData.files) {
+            allFiles = [...allFiles, ...subFilesData.files];
           }
-        });
+        }
       }
+
+      const receiptsByDate: Record<string, any[]> = {};
+      allFiles.forEach((file: any) => {
+        const match = file.name.match(/^\d{4}-\d{2}-\d{2}/);
+        if (match) {
+          const date = match[0];
+          if (!receiptsByDate[date]) receiptsByDate[date] = [];
+          receiptsByDate[date].push(file);
+        }
+      });
       setMonthReceipts(receiptsByDate);
     } catch (error) { console.error("Error fetching month receipts:", error); }
   };
@@ -161,6 +206,7 @@ export default function WorkTracker() {
         setMonthlyLimit(data.monthlyHourLimit || 75);
         setMonthlyMilesLimit(data.monthlyMilesLimit || 500);
         setFamilyPin(data.familyPin || '');
+        setCompanyName(data.companyName || '');
       }
     });
     return () => unsubscribe();
@@ -442,6 +488,17 @@ export default function WorkTracker() {
     }
   };
 
+  const saveCompanyName = async () => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { companyName: companyNameInput }, { merge: true });
+      setCompanyModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update company name.');
+    }
+  };
+
   // Helper for Premium UI Timeline and PDF
   const formatAddress = (address: string) => {
     if (!address) return { title: 'Unknown', sub: '' };
@@ -449,8 +506,24 @@ export default function WorkTracker() {
     return { title: parts[0], sub: parts.slice(1).join(',').trim() };
   };
 
+  const handleExportOptions = () => {
+    if (Platform.OS === 'web') {
+      generatePDF('share');
+    } else {
+      Alert.alert(
+        "Export Timesheet",
+        "How would you like to share this PDF?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Share / Save", onPress: () => generatePDF('share') },
+          { text: "Send via Email", onPress: () => generatePDF('email') }
+        ]
+      );
+    }
+  };
+
   // --- UPGRADED PREMIUM PDF GENERATOR ---
-  const generatePDF = async () => {
+  const generatePDF = async (action: 'share' | 'email' = 'share') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -492,13 +565,13 @@ export default function WorkTracker() {
                   return trip.stops.map((s, i) => {
                       const isFirst = i === 0;
                       const isLast = i === trip.stops!.length - 1;
-                      const color = isFirst ? '#10b981' : isLast ? '#ef4444' : '#6b7280';
+                      const color = isFirst ? '#10B981' : isLast ? '#EF4444' : '#94A3B8';
                       const label = isFirst ? '<strong>[Start]</strong>' : isLast ? '<strong>[End]</strong>' : '<strong>[Stop]</strong>';
-                      return `<div style="color: ${color}; padding: 3px 0;">${label} <span style="color: #374151;">${s.address}</span></div>`;
-                  }).join('<div style="color: #cbd5e1; font-size: 16px; padding-left: 10px;">&darr;</div>');
+                      return `<div style="color: ${color}; padding: 3px 0;">${label} <span style="color: #334155;">${s.address}</span></div>`;
+                  }).join('<div style="color: #CBD5E1; font-size: 16px; padding-left: 10px;">&darr;</div>');
               }
-              return '<div style="color: #6b7280; font-style: italic;">Legacy Route Data</div>';
-          }).join('<hr style="border: 0; border-top: 1px dashed #e5e7eb; margin: 15px 0;" />');
+              return '<div style="color: #94A3B8; font-style: italic;">Legacy Route Data</div>';
+          }).join('<hr style="border: 0; border-top: 1px dashed #E2E8F0; margin: 15px 0;" />');
           routeHtml = `<div style="font-size: 12px; line-height: 1.4;">${routes}</div>`;
       }
 
@@ -517,47 +590,80 @@ export default function WorkTracker() {
     const estDeduction = (monthlyMiles * 0.67).toFixed(2);
     const totalDaysWorked = sortedDates.length;
 
+    // Generate Receipts Breakdown Table
+    let receiptsHtml = '';
+    let hasReceipts = false;
+    const categoryMap: Record<string, any[]> = {};
+
+    Object.keys(monthReceipts).forEach(date => {
+      monthReceipts[date].forEach(r => {
+        hasReceipts = true;
+        const parts = r.name.split('_');
+        let cat = 'Uncategorized';
+        let originalName = r.name;
+        if (parts.length >= 3 && parts[0] === date) {
+           cat = parts[1];
+           originalName = parts.slice(2).join('_');
+        }
+        if (!categoryMap[cat]) categoryMap[cat] = [];
+        categoryMap[cat].push({ date, name: originalName });
+      });
+    });
+
+    if (hasReceipts) {
+      const receiptRows = Object.keys(categoryMap).sort().flatMap(cat => {
+        return categoryMap[cat].map(r => `<tr><td class="val-cell">${cat}</td><td>${r.date}</td><td>${r.name}</td></tr>`);
+      }).join('');
+
+      receiptsHtml = `
+        <div style="margin-top: 40px; page-break-inside: avoid;">
+          <h3 style="color: #0F172A; margin-bottom: 15px; border-bottom: 2px solid #E2E8F0; padding-bottom: 5px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">Attached Receipts Breakdown</h3>
+          <table><thead><tr><th style="width: 25%;">Category</th><th style="width: 20%;">Date</th><th style="width: 55%;">Document Name</th></tr></thead><tbody>${receiptRows}</tbody></table>
+        </div>
+      `;
+    }
+
     const htmlContent = `
       <!DOCTYPE html>
       <html>
       <head>
         <style>
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1f2937; margin: 0; padding: 40px; background-color: #ffffff; }
-          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px; margin-bottom: 30px; }
-          .header h1 { margin: 0 0 5px 0; font-size: 28px; color: #111827; letter-spacing: -0.5px; }
-          .header p { margin: 0; color: #6b7280; font-size: 14px; }
+          body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #334155; margin: 0; padding: 40px; background-color: #ffffff; }
+          .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1E293B; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { margin: 0 0 5px 0; font-size: 28px; color: #0F172A; letter-spacing: -0.5px; font-weight: 800; }
+          .header p { margin: 0; color: #64748B; font-size: 14px; }
           .brand { text-align: right; }
-          .brand-title { font-size: 20px; font-weight: 800; color: #0369a1; margin: 0 0 5px 0; letter-spacing: -0.5px; }
+          .brand-title { font-size: 20px; font-weight: 800; color: #3B82F6; margin: 0 0 5px 0; letter-spacing: -0.5px; }
           
           .summary-grid { display: flex; gap: 20px; margin-bottom: 30px; }
-          .summary-box { flex: 1; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px 20px; }
-          .summary-box.highlight { background: #f0fdf4; border-color: #34d399; }
-          .summary-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; margin-bottom: 5px; font-weight: 600; }
+          .summary-box { flex: 1; background: #F8FAFC; border: 1px solid #E2E8F0; border-top: 4px solid #3B82F6; border-radius: 8px; padding: 15px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+          .summary-box.highlight { background: #ECFDF5; border-color: #E2E8F0; border-top: 4px solid #10B981; }
+          .summary-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748B; margin-bottom: 5px; font-weight: 700; }
           .summary-box.highlight .summary-label { color: #059669; }
-          .summary-value { font-size: 24px; font-weight: 700; color: #111827; margin: 0; }
-          .summary-box.highlight .summary-value { color: #059669; }
-          .summary-subtext { font-size: 13px; color: #9ca3af; margin-top: 5px; }
+          .summary-value { font-size: 24px; font-weight: 800; color: #0F172A; margin: 0; }
+          .summary-box.highlight .summary-value { color: #10B981; }
+          .summary-subtext { font-size: 13px; color: #94A3B8; margin-top: 5px; }
 
-          .notes-section { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 20px; margin-bottom: 30px; }
-          .notes-title { font-size: 14px; font-weight: 700; color: #d97706; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px; }
-          .notes-content { margin: 0; font-size: 14px; color: #92400e; line-height: 1.6; white-space: pre-wrap; }
+          .notes-section { background: #FFFBEB; border: 1px solid #FEF3C7; border-left: 4px solid #F59E0B; border-radius: 8px; padding: 20px; margin-bottom: 30px; }
+          .notes-title { font-size: 14px; font-weight: 800; color: #B45309; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px; }
+          .notes-content { margin: 0; font-size: 14px; color: #92400E; line-height: 1.6; white-space: pre-wrap; }
 
           table { width: 100%; border-collapse: collapse; margin-bottom: 40px; font-size: 13px; }
-          th { background: #f3f4f6; padding: 12px 15px; text-align: left; font-weight: 600; color: #4b5563; border-bottom: 2px solid #e5e7eb; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
-          td { padding: 15px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: top; color: #374151; }
-          tr:nth-child(even) { background-color: #f9fafb; }
-          .val-cell { font-weight: 600; color: #111827; }
-          .miles-cell { font-weight: 600; color: #0369a1; }
+          th { background: #1E293B; padding: 14px 15px; text-align: left; font-weight: 700; color: #F8FAFC; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+          td { padding: 15px 12px; border-bottom: 1px solid #E2E8F0; vertical-align: top; color: #334155; }
+          tr:nth-child(even) { background-color: #F8FAFC; }
+          .val-cell { font-weight: 700; color: #0F172A; }
+          .miles-cell { font-weight: 700; color: #3B82F6; }
           
-          .table-footer { background: #f3f4f6; font-weight: bold; font-size: 14px; }
-          .table-footer td { color: #111827; border-top: 2px solid #e5e7eb; border-bottom: none; }
+          .table-footer { background: #F1F5F9; font-weight: bold; font-size: 14px; }
+          .table-footer td { color: #0F172A; border-top: 2px solid #CBD5E1; border-bottom: none; }
 
           .signatures { display: flex; justify-content: space-between; margin-top: 60px; page-break-inside: avoid; }
           .sig-block { width: 45%; }
-          .sig-line { border-top: 1px solid #9ca3af; margin-bottom: 10px; padding-top: 5px; }
-          .sig-text { font-size: 12px; color: #6b7280; font-style: italic; }
+          .sig-line { border-top: 1px solid #94A3B8; margin-bottom: 10px; padding-top: 5px; font-weight: 600; color: #0F172A; }
+          .sig-text { font-size: 12px; color: #64748B; font-style: italic; }
 
-          .footer { text-align: center; font-size: 11px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 40px; }
+          .footer { text-align: center; font-size: 11px; color: #94A3B8; border-top: 1px solid #E2E8F0; padding-top: 20px; margin-top: 40px; }
 
           @media print {
             @page { margin: 15mm; }
@@ -581,7 +687,7 @@ export default function WorkTracker() {
             <p><strong>Caregiver:</strong> ${user?.email || 'N/A'}</p>
           </div>
           <div class="brand">
-            <h2 class="brand-title">MyTrackerApp</h2>
+            <h2 class="brand-title">${companyName || 'MyTrackerApp'}</h2>
             <p>Generated: ${currentDate}</p>
           </div>
         </div>
@@ -632,6 +738,8 @@ export default function WorkTracker() {
           ` : ''}
         </table>
         
+        ${receiptsHtml}
+
         <div class="signatures">
           <div class="sig-block">
             <div class="sig-line">Caregiver Signature</div>
@@ -644,7 +752,7 @@ export default function WorkTracker() {
         </div>
         
         <div class="footer">
-          <p style="margin: 0 0 5px 0;">Generated securely by MyTrackerApp</p>
+          <p style="margin: 0 0 5px 0;">Generated securely by ${companyName || 'MyTrackerApp'}</p>
           <p style="margin: 0;">* Mileage deduction is estimated using the 2024 IRS standard mileage rate of 67 cents per mile.</p>
         </div>
         </body>
@@ -703,11 +811,26 @@ export default function WorkTracker() {
         }
       } else {
         const file = await Print.printToFileAsync({ html: htmlContent, base64: false });
-        await Sharing.shareAsync(file.uri, { 
-          mimeType: 'application/pdf', 
-          dialogTitle: `${displayMonth.replace(' ', '_')}_Timesheet`, 
-          UTI: 'com.adobe.pdf' 
-        });
+        
+        if (action === 'email') {
+          const isAvailable = await MailComposer.isAvailableAsync();
+          if (isAvailable) {
+            await MailComposer.composeAsync({
+              subject: `${displayMonth} Timesheet & Mileage`,
+              body: `Please find attached the timesheet and mileage log for ${displayMonth}.`,
+              attachments: [file.uri],
+            });
+          } else {
+            Alert.alert("Email Unavailable", "No email app is configured on this device. Using standard share instead.");
+            await Sharing.shareAsync(file.uri, { mimeType: 'application/pdf', dialogTitle: `${displayMonth.replace(' ', '_')}_Timesheet`, UTI: 'com.adobe.pdf' });
+          }
+        } else {
+          await Sharing.shareAsync(file.uri, { 
+            mimeType: 'application/pdf', 
+            dialogTitle: `${displayMonth.replace(' ', '_')}_Timesheet`, 
+            UTI: 'com.adobe.pdf' 
+          });
+        }
       }
     } catch (error) {
       Alert.alert("PDF Error", "Failed to generate PDF.");
@@ -818,7 +941,7 @@ export default function WorkTracker() {
     }
   };
 
-  const handleDriveUpload = async (uri: string, mimeType: string, fileName: string, shiftDate: string) => {
+  const handleDriveUpload = async (uri: string, mimeType: string, fileName: string, shiftDate: string, category: string) => {
     let token = googleToken;
     if (!token) {
       if (request) {
@@ -844,34 +967,52 @@ export default function WorkTracker() {
       }
 
       const monthString = shiftDate.slice(0, 7); // e.g., "2024-03"
-      const folderName = `Receipts - ${monthString}`;
+      const monthFolderName = `Receipts - ${monthString}`;
 
-      // 1. Search to see if a folder for this month already exists
-      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${folderName}' and '${masterFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, {
+      // 1. Get or Create Month Folder
+      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${monthFolderName}' and '${masterFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const searchData = await searchRes.json();
       
-      let targetFolderId = '';
+      let monthFolderId = '';
       if (searchData.files && searchData.files.length > 0) {
-        targetFolderId = searchData.files[0].id;
+        monthFolderId = searchData.files[0].id;
       } else {
-        // 2. If no folder for this month exists, create one!
         const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: folderName, mimeType: 'application/vnd.google-apps.folder', parents: [masterFolderId] }),
+          body: JSON.stringify({ name: monthFolderName, mimeType: 'application/vnd.google-apps.folder', parents: [masterFolderId] }),
         });
         const createData = await createRes.json();
         if (!createData.id) throw new Error("Failed to create folder");
-        targetFolderId = createData.id;
+        monthFolderId = createData.id;
       }
 
-      // 3. Upload file with the specific month folder as its parent
+      // 2. Get or Create Category Subfolder inside Month Folder
+      const catSearchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${category}' and '${monthFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const catSearchData = await catSearchRes.json();
+      
+      let categoryFolderId = '';
+      if (catSearchData.files && catSearchData.files.length > 0) {
+        categoryFolderId = catSearchData.files[0].id;
+      } else {
+        const createCatRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: category, mimeType: 'application/vnd.google-apps.folder', parents: [monthFolderId] }),
+        });
+        const createCatData = await createCatRes.json();
+        categoryFolderId = createCatData.id;
+      }
+
+      // 3. Upload file into the specific Category Folder
       const metadataRes = await fetch('https://www.googleapis.com/drive/v3/files', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `${shiftDate}_${fileName}`, mimeType, parents: [targetFolderId] }),
+        body: JSON.stringify({ name: `${shiftDate}_${category}_${fileName}`, mimeType, parents: [categoryFolderId] }),
       });
       const metadata = await metadataRes.json();
       if (!metadata.id) throw new Error('Failed to create file metadata');
@@ -886,12 +1027,13 @@ export default function WorkTracker() {
 
       if (uploadRes.ok) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Success', `Receipt saved directly to Google Drive folder: ${folderName}`);
+        Alert.alert('Success', `Receipt saved directly to your ${category} folder in Google Drive!`);
         fetchMonthlyReceipts(); // Refresh the visible cache
       } else throw new Error('Failed to upload file content');
     } catch (error) {
       console.error(error);
       Alert.alert('Upload Error', 'Failed to upload receipt. Your Google session may have expired.');
+      await AsyncStorage.removeItem('googleDriveToken');
       setGoogleToken(null);
     } finally {
       setIsUploadingReceipt(false);
@@ -903,7 +1045,8 @@ export default function WorkTracker() {
       const result = await DocumentPicker.getDocumentAsync({ type: ['image/*', 'application/pdf'], copyToCacheDirectory: true });
       if (result.canceled) return;
       const file = result.assets[0];
-      await handleDriveUpload(file.uri, file.mimeType || 'application/octet-stream', file.name, selectedDate);
+      const finalCat = receiptCategory === 'Custom' ? (customCategory.trim().replace(/'/g, "") || 'Other') : receiptCategory;
+      await handleDriveUpload(file.uri, file.mimeType || 'application/octet-stream', file.name, selectedDate, finalCat);
     } catch (error) { Alert.alert('Error', 'Failed to pick document.'); }
   };
 
@@ -933,7 +1076,8 @@ export default function WorkTracker() {
           const { uri: pdfUri } = await Print.printToFileAsync({ html: htmlContent, base64: false });
           const fileName = `Photo_${Date.now()}.pdf`;
           
-          await handleDriveUpload(pdfUri, 'application/pdf', fileName, selectedDate);
+          const finalCat = receiptCategory === 'Custom' ? (customCategory.trim().replace(/'/g, "") || 'Other') : receiptCategory;
+          await handleDriveUpload(pdfUri, 'application/pdf', fileName, selectedDate, finalCat);
         } catch(e) {
           Alert.alert('Error', 'Failed to convert photo to PDF.');
           setIsUploadingReceipt(false);
@@ -1005,7 +1149,7 @@ export default function WorkTracker() {
           <Text style={styles.title}>Work Tracker</Text>
           <View style={styles.headerIcons}>
             <TouchableOpacity onPress={() => { setNotesInput(monthlyNotes); setNotesModalVisible(true); }} style={{ marginRight: 20 }}><FileText color="#94A3B8" size={28} /></TouchableOpacity>
-            <TouchableOpacity onPress={generatePDF} style={{ marginRight: 20 }}><Printer color="#F8FAFC" size={28} /></TouchableOpacity>
+            <TouchableOpacity onPress={handleExportOptions} style={{ marginRight: 20 }}><Printer color="#F8FAFC" size={28} /></TouchableOpacity>
             <TouchableOpacity onPress={() => setSettingsVisible(true)} style={{ marginRight: 20 }}><Settings color="#94A3B8" size={28} /></TouchableOpacity>
             <TouchableOpacity onPress={handleLogout}><LogOut color="#EF4444" size={28} /></TouchableOpacity>
           </View>
@@ -1264,10 +1408,34 @@ export default function WorkTracker() {
                 </View>
               ) : null}
             </TouchableOpacity>
+            <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#3B82F6', marginBottom: 15, flexDirection: 'row', justifyContent: 'center' }]} onPress={() => { setCompanyNameInput(companyName); setSettingsVisible(false); setCompanyModalVisible(true); }}>
+              <Text style={styles.saveButtonText}>{companyName ? 'Edit Company Name' : 'Set Company Name'}</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
+      <Modal visible={isCompanyModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Company Name</Text>
+              <TouchableOpacity onPress={() => setCompanyModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            <Text style={{ color: '#94A3B8', marginBottom: 15 }}>This name will appear in the top right corner of your exported PDF timesheets.</Text>
+            <TextInput 
+              style={[styles.loginInput, { textAlign: 'center', fontSize: 20 }]} 
+              value={companyNameInput} 
+              onChangeText={setCompanyNameInput} 
+              placeholder="Enter company name..." 
+              placeholderTextColor="#94A3B8"
+            />
+            <TouchableOpacity style={styles.saveButton} onPress={saveCompanyName}>
+              <Text style={styles.saveButtonText}>Save Name</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
       <Modal visible={isFamilyPinModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
@@ -1359,6 +1527,37 @@ export default function WorkTracker() {
               <View style={{ width: 25 }} /> 
               <MapPin color="#0a7ea4" size={20} />
               <Text style={[styles.durationText, { color: '#0a7ea4' }]}>{dayMiles.toFixed(1)} mi</Text>
+            </View>
+
+            <View style={{ marginBottom: 15 }}>
+              <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Select Category</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {['Food', 'Outings', 'Gas', 'Supplies', 'Other', 'Custom'].map(cat => (
+                  <TouchableOpacity 
+                    key={cat} 
+                    onPress={() => setReceiptCategory(cat)}
+                    style={{ 
+                      backgroundColor: receiptCategory === cat ? '#3B82F6' : '#1E293B', 
+                      paddingVertical: 8, 
+                      paddingHorizontal: 12, 
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: receiptCategory === cat ? '#3B82F6' : '#334155'
+                    }}>
+                    <Text style={{ color: receiptCategory === cat ? '#FFF' : '#94A3B8', fontSize: 13, fontWeight: 'bold' }}>{cat}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {receiptCategory === 'Custom' && (
+                <TextInput
+                  style={[styles.loginInput, { marginTop: 10, marginBottom: 0, paddingVertical: 10, fontSize: 14 }]}
+                  placeholder="Enter custom category name..."
+                  placeholderTextColor="#94A3B8"
+                  value={customCategory}
+                  onChangeText={setCustomCategory}
+                  maxLength={30}
+                />
+              )}
             </View>
 
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 15 }}>
