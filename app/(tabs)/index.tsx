@@ -10,7 +10,7 @@ import { router, useFocusEffect, useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
 import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { Camera, CheckCircle2, ChevronRight, Clock, Edit2, FileText, LogOut, MapPin, Paperclip, Printer, Settings, Trash2, TrendingUp, UploadCloud, X } from 'lucide-react-native';
+import { Camera, CheckCircle2, ChevronRight, Edit2, FileText, LogOut, MapPin, Paperclip, Printer, Settings, Trash2, UploadCloud, X } from 'lucide-react-native';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -95,6 +95,8 @@ export default function WorkTracker() {
   // Google Drive Upload State
   const [googleToken, setGoogleToken] = useState<string | null>(null);
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [activeXhr, setActiveXhr] = useState<XMLHttpRequest | null>(null);
   const [monthReceipts, setMonthReceipts] = useState<Record<string, any[]>>({});
   const [receiptCategory, setReceiptCategory] = useState('Food');
   const [customCategory, setCustomCategory] = useState('');
@@ -958,6 +960,8 @@ export default function WorkTracker() {
     if (!token) return;
 
     setIsUploadingReceipt(true);
+    setUploadProgress(0);
+    let createdFileId = '';
     try {
       const masterFolderId = await AsyncStorage.getItem('defaultFolderId');
       if (!masterFolderId) {
@@ -1016,27 +1020,55 @@ export default function WorkTracker() {
       });
       const metadata = await metadataRes.json();
       if (!metadata.id) throw new Error('Failed to create file metadata');
+      createdFileId = metadata.id;
 
       const localFile = await fetch(uri);
       const blob = await localFile.blob();
-      const uploadRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${metadata.id}?uploadType=media`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': mimeType },
-        body: blob,
+
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        setActiveXhr(xhr);
+        xhr.open('PATCH', `https://www.googleapis.com/upload/drive/v3/files/${metadata.id}?uploadType=media`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.setRequestHeader('Content-Type', mimeType);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          setActiveXhr(null);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(true);
+          else reject(new Error('Failed to upload file content'));
+        };
+        xhr.onerror = () => {
+          setActiveXhr(null);
+          reject(new Error('Network error during upload'));
+        };
+        xhr.onabort = () => {
+          setActiveXhr(null);
+          reject(new Error('Upload cancelled'));
+        };
+        xhr.send(blob);
       });
 
-      if (uploadRes.ok) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Success', `Receipt saved directly to your ${category} folder in Google Drive!`);
-        fetchMonthlyReceipts(); // Refresh the visible cache
-      } else throw new Error('Failed to upload file content');
-    } catch (error) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('Success', `Receipt saved directly to your ${category} folder in Google Drive!`);
+      fetchMonthlyReceipts(); // Refresh the visible cache
+    } catch (error: any) {
       console.error(error);
-      Alert.alert('Upload Error', 'Failed to upload receipt. Your Google session may have expired.');
-      await AsyncStorage.removeItem('googleDriveToken');
-      setGoogleToken(null);
+      if (error.message === 'Upload cancelled') {
+        if (createdFileId) {
+          fetch(`https://www.googleapis.com/drive/v3/files/${createdFileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(e => console.error("Failed to cleanup file", e));
+        }
+      } else {
+        Alert.alert('Upload Error', 'Failed to upload receipt. Your Google session may have expired.');
+        await AsyncStorage.removeItem('googleDriveToken');
+        setGoogleToken(null);
+      }
     } finally {
       setIsUploadingReceipt(false);
+      setActiveXhr(null);
     }
   };
 
@@ -1054,7 +1086,7 @@ export default function WorkTracker() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') return Alert.alert('Permission Denied', 'Camera access is required to take photos.');
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.8, base64: true });
+      const result = await ImagePicker.launchCameraAsync({ quality: 0.4, base64: true });
       if (!result.canceled) {
         setIsUploadingReceipt(true);
         try {
@@ -1163,9 +1195,9 @@ export default function WorkTracker() {
                 strokeDasharray={`${progressHours * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
-              <Text style={styles.hoursTextSmall}>{hoursWorked.toFixed(1)}</Text>
+              <Text style={styles.hoursTextSmall}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text>
             </View>
-            <Text style={styles.chartLabel}>Completed Hours</Text>
+            <Text style={styles.chartLabel}>Remaining Hrs</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
@@ -1191,11 +1223,6 @@ export default function WorkTracker() {
             </View>
             <Text style={[styles.chartLabel, { color: '#0a7ea4' }]}>Miles</Text>
           </TouchableOpacity>
-        </View>
-        
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}><Clock size={20} color="#94A3B8" /><Text style={styles.statValue}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text><Text style={styles.statLabel}>Remaining Hrs</Text></View>
-          <View style={styles.statBox}><TrendingUp size={20} color="#94A3B8" /><Text style={styles.statValue}>{weeklyTotal.toFixed(1)}</Text><Text style={styles.statLabel}>Week Hrs</Text></View>
         </View>
         
         <View style={styles.calendarContainer}>
@@ -1571,6 +1598,25 @@ export default function WorkTracker() {
                </TouchableOpacity>
             </View>
 
+        {isUploadingReceipt && uploadProgress > 0 && (
+          <View style={{ marginBottom: 15 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text style={{ color: '#10B981', fontSize: 12, fontWeight: 'bold' }}>UPLOADING...</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ color: '#10B981', fontSize: 12, fontWeight: 'bold', marginRight: 10 }}>{uploadProgress}%</Text>
+                {activeXhr && (
+                  <TouchableOpacity onPress={() => activeXhr.abort()}>
+                    <X size={16} color="#EF4444" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+            <View style={{ height: 6, backgroundColor: '#1E293B', borderRadius: 3, overflow: 'hidden' }}>
+              <View style={{ height: '100%', width: `${uploadProgress}%`, backgroundColor: '#10B981' }} />
+            </View>
+          </View>
+        )}
+
             <View style={{ marginBottom: 20 }}>
                {!googleToken ? (
                  <TouchableOpacity onPress={() => promptAsync()} style={styles.viewReceiptsBtn}>
@@ -1637,10 +1683,6 @@ const styles = StyleSheet.create({
   hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
   limitTextSmall: { fontSize: 12, color: '#94A3B8' },
   chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 8, fontSize: 14 },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
-  statBox: { backgroundColor: '#1E293B', padding: 16, borderRadius: 16, width: '48%', alignItems: 'center' },
-  statValue: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },
-  statLabel: { fontSize: 12, color: '#94A3B8' },
   calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
   weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
   weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },

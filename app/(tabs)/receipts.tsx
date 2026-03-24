@@ -34,6 +34,8 @@ export default function ReceiptsScreen() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [files, setFiles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [activeXhr, setActiveXhr] = useState<XMLHttpRequest | null>(null);
   const [folderStack, setFolderStack] = useState<string[]>(['root']);
   const [defaultFolderId, setDefaultFolderId] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -160,6 +162,8 @@ export default function ReceiptsScreen() {
 
   const uploadToGoogleDrive = async (uri: string, mimeType: string, name: string) => {
     setLoading(true);
+    setUploadProgress(0);
+    let createdFileId = '';
     try {
       const currentFolderId = folderStack[folderStack.length - 1];
 
@@ -179,31 +183,53 @@ export default function ReceiptsScreen() {
       
       const metadata = await metadataRes.json();
       if (!metadata.id) throw new Error('Failed to create file metadata');
+      createdFileId = metadata.id;
 
       // Step 2: Upload file content
       const localFile = await fetch(uri);
       const blob = await localFile.blob();
 
-      const uploadRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${metadata.id}?uploadType=media`, {
-        method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': mimeType,
-        },
-        body: blob,
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        setActiveXhr(xhr);
+        xhr.open('PATCH', `https://www.googleapis.com/upload/drive/v3/files/${metadata.id}?uploadType=media`);
+        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+        xhr.setRequestHeader('Content-Type', mimeType);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+        xhr.onload = () => {
+          setActiveXhr(null);
+          if (xhr.status >= 200 && xhr.status < 300) resolve(true);
+          else reject(new Error('Failed to upload file content'));
+        };
+        xhr.onerror = () => {
+          setActiveXhr(null);
+          reject(new Error('Network error during upload'));
+        };
+        xhr.onabort = () => {
+          setActiveXhr(null);
+          reject(new Error('Upload cancelled'));
+        };
+        xhr.send(blob);
       });
 
-      if (uploadRes.ok) {
-        Alert.alert('Success', 'Receipt uploaded successfully!');
-        fetchFiles(); // Refresh list
-      } else {
-        throw new Error('Failed to upload file content');
-      }
-    } catch (error) {
+      Alert.alert('Success', 'Receipt uploaded successfully!');
+      fetchFiles(); // Refresh list
+    } catch (error: any) {
       console.error(error);
-      Alert.alert('Error', 'An unexpected error occurred during upload.');
+      if (error.message === 'Upload cancelled') {
+        if (createdFileId) {
+          fetch(`https://www.googleapis.com/drive/v3/files/${createdFileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }).catch(e => console.error("Failed to cleanup file", e));
+        }
+      } else {
+        Alert.alert('Error', 'An unexpected error occurred during upload.');
+      }
     } finally {
       setLoading(false);
+      setActiveXhr(null);
     }
   };
 
@@ -232,12 +258,12 @@ export default function ReceiptsScreen() {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        quality: 0.8, // Slightly compress image to save Google Drive storage space
+        quality: 0.4, // Aggressively compress image to save Google Drive storage
       });
 
       if (!result.canceled) {
         const asset = result.assets[0];
-        const fileName = asset.uri.split('/').pop() || `Photo_${Date.now()}.jpg`;
+        const fileName = asset.uri?.split('/').pop() || `Photo_${Date.now()}.jpg`;
         await uploadToGoogleDrive(asset.uri, 'image/jpeg', fileName);
       }
     } catch (error) {
@@ -245,6 +271,7 @@ export default function ReceiptsScreen() {
       Alert.alert('Error', 'An unexpected error occurred while taking a photo.');
     }
   };
+
 
   const createFolder = async () => {
     if (!newFolderName.trim()) return;
@@ -457,6 +484,25 @@ export default function ReceiptsScreen() {
               <Text style={styles.uploadButtonText}>{loading ? 'Processing' : 'Upload File'}</Text>
             </TouchableOpacity>
           </View>
+      
+        {loading && uploadProgress > 0 && (
+          <View style={{ marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: 'bold' }}>UPLOADING...</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={{ color: '#3B82F6', fontSize: 12, fontWeight: 'bold', marginRight: 10 }}>{uploadProgress}%</Text>
+                {activeXhr && (
+                  <TouchableOpacity onPress={() => activeXhr.abort()}>
+                    <X size={16} color="#EF4444" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+            <View style={{ height: 6, backgroundColor: '#1E293B', borderRadius: 3, overflow: 'hidden' }}>
+              <View style={{ height: '100%', width: `${uploadProgress}%`, backgroundColor: '#3B82F6' }} />
+            </View>
+          </View>
+        )}
 
           <View style={styles.actionRow}>
             {folderStack.length > 1 ? (

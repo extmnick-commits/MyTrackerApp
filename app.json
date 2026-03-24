@@ -36,11 +36,7 @@
       "expo-web-browser",
       "expo-mail-composer"
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
     "extra": {
-      "router": {},
       "eas": {
         "projectId": "e56e0164-4305-40b7-b92f-a74b840b3f0b"
       }

@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
 import { signOut } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { ChevronRight, Clock, LogOut, TrendingUp, X } from 'lucide-react-native';
+import { ChevronRight, LogOut, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -163,7 +163,7 @@ export default function FamilyDashboard() {
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
     const isProj = workLogs[date]?.isProjected;
-    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6' };
+    markedDates[date] = { marked: true, dotColor: '#3B82F6' };
   });
 
   if (!user || !caregiverId) {
@@ -197,28 +197,22 @@ export default function FamilyDashboard() {
                 strokeDasharray={`${progressHours * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
-              <Text style={styles.hoursTextSmall}>{hoursWorked.toFixed(1)}</Text>
-              <Text style={styles.limitTextSmall}>/ {monthlyLimit} h</Text>
+              <Text style={styles.hoursTextSmall}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text>
             </View>
-            <Text style={styles.chartLabel}>Completed Hours</Text>
+            <Text style={styles.chartLabel}>Remaining Hrs</Text>
           </View>
 
           <View style={styles.dashboardCardHalf}>
             <Svg height="140" width="140" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
-              <Circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="8" fill="none"
+              <Circle cx="50" cy="50" r="45" stroke="#3B82F6" strokeWidth="8" fill="none"
                 strokeDasharray={`${progressProjected * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
             </View>
-            <Text style={[styles.chartLabel, { color: '#F59E0B' }]}>Projected</Text>
+            <Text style={[styles.chartLabel, { color: '#3B82F6' }]}>Projected</Text>
           </View>
-        </View>
-        
-        <View style={styles.statsRow}>
-          <View style={styles.statBox}><Clock size={20} color="#94A3B8" /><Text style={styles.statValue}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text><Text style={styles.statLabel}>Remaining Hrs</Text></View>
-          <View style={styles.statBox}><TrendingUp size={20} color="#94A3B8" /><Text style={styles.statValue}>{weeklyTotal.toFixed(1)}</Text><Text style={styles.statLabel}>Week Hrs</Text></View>
         </View>
         
         <View style={styles.calendarContainer}>
@@ -313,12 +307,7 @@ const styles = StyleSheet.create({
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
   centerTextSmall: { position: 'absolute', top: 44, alignItems: 'center' },
   hoursTextSmall: { fontSize: 30, fontWeight: 'bold', color: '#F8FAFC' },
-  limitTextSmall: { fontSize: 14, color: '#94A3B8' },
   chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 18 },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 24 },
-  statBox: { backgroundColor: '#1E293B', padding: 16, borderRadius: 16, width: '48%', alignItems: 'center' },
-  statValue: { fontSize: 28, fontWeight: 'bold', color: '#F8FAFC', marginTop: 8 },
-  statLabel: { fontSize: 12, color: '#94A3B8' },
   calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
   weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
   weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
