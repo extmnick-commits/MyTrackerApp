@@ -24,6 +24,7 @@ export default function FamilyDashboard() {
   
   // Limits
   const [monthlyLimit, setMonthlyLimit] = useState(75);
+  const [highlightProjected, setHighlightProjected] = useState(false);
 
   // Current Stats
   const [hoursWorked, setHoursWorked] = useState(0);
@@ -163,7 +164,7 @@ export default function FamilyDashboard() {
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
     const isProj = workLogs[date]?.isProjected;
-    markedDates[date] = { marked: true, dotColor: '#3B82F6' };
+    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', isProj };
   });
 
   if (!user || !caregiverId) {
@@ -202,17 +203,17 @@ export default function FamilyDashboard() {
             <Text style={styles.chartLabel}>Remaining Hrs</Text>
           </View>
 
-          <View style={styles.dashboardCardHalf}>
+          <TouchableOpacity style={styles.dashboardCardHalf} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
             <Svg height="140" width="140" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
-              <Circle cx="50" cy="50" r="45" stroke="#3B82F6" strokeWidth="8" fill="none"
+              <Circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="8" fill="none"
                 strokeDasharray={`${progressProjected * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
             </View>
-            <Text style={[styles.chartLabel, { color: '#3B82F6' }]}>Projected</Text>
-          </View>
+            <Text style={[styles.chartLabel, { color: '#F59E0B' }]}>Projected</Text>
+          </TouchableOpacity>
         </View>
         
         <View style={styles.calendarContainer}>
@@ -221,6 +222,19 @@ export default function FamilyDashboard() {
             markedDates={markedDates}
             onMonthChange={(month: any) => setViewedMonthYear(month.dateString.slice(0, 7))}
             disableAllTouchEventsForDisabledDays={true}
+            dayComponent={({date, state}: any) => {
+              const marking = markedDates[date.dateString];
+              const isMarked = marking?.marked;
+              const shouldHighlight = highlightProjected && marking?.isProj;
+              return (
+                <View style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: '#F59E0B'}}>
+                   <Text style={{color: state === 'disabled' ? '#475569' : '#F8FAFC'}}>{date.day}</Text>
+                   <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
+                     {isMarked && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6'}} />}
+                   </View>
+                </View>
+              );
+            }}
           />
         </View>
 

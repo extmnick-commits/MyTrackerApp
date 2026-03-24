@@ -68,6 +68,7 @@ export default function WorkTracker() {
   const [familyPin, setFamilyPin] = useState('');
   const [isFamilyPinModalVisible, setFamilyPinModalVisible] = useState(false);
   const [familyMembersList, setFamilyMembersList] = useState<{id: string, name: string, lastLogin?: string}[]>([]);
+  const [highlightProjected, setHighlightProjected] = useState(false);
 
   // App Settings State
   const [companyName, setCompanyName] = useState('');
@@ -1151,7 +1152,7 @@ export default function WorkTracker() {
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
     const isProj = workLogs[date]?.isProjected;
-    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', hasReceipt: !!(monthReceipts[date] && monthReceipts[date].length > 0) };
+    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', hasReceipt: !!(monthReceipts[date] && monthReceipts[date].length > 0), isProj };
   });
   Object.keys(monthReceipts).forEach(date => {
     if (!markedDates[date]) {
@@ -1200,7 +1201,7 @@ export default function WorkTracker() {
             <Text style={styles.chartLabel}>Remaining Hrs</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
+          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
             <Svg height="100" width="100" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="40" stroke="#F59E0B" strokeWidth="8" fill="none"
@@ -1236,8 +1237,9 @@ export default function WorkTracker() {
               const isSelected = marking?.selected;
               const hasReceipt = marking?.hasReceipt;
               const isMarked = marking?.marked;
+              const shouldHighlight = highlightProjected && marking?.isProj;
               return (
-                <View style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, backgroundColor: isSelected ? '#3B82F6' : 'transparent', borderRadius: 18}}>
+                <View style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, backgroundColor: isSelected ? '#3B82F6' : 'transparent', borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: '#F59E0B'}}>
                    <TouchableOpacity onPress={() => handleDayPress(date)} style={{ position: 'absolute', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-start', paddingTop: 5 }}>
                      <Text style={{color: state === 'disabled' ? '#475569' : isSelected ? '#FFF' : '#F8FAFC'}}>{date.day}</Text>
                    </TouchableOpacity>
