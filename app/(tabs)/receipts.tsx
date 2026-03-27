@@ -640,6 +640,7 @@ const styles = StyleSheet.create({
   connectButtonText: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
   content: { flex: 1, padding: 24 },
   uploadRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 10 },
+  uploadButton: { flexDirection: 'row', backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 4, marginBottom: 16 },
   uploadButtonHalf: { flex: 1, flexDirection: 'row', backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 4 },
   uploadButtonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
   actionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
