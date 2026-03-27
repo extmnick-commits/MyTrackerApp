@@ -114,8 +114,9 @@ export default function WorkTracker() {
   });
 
   const now = new Date();
-  const currentDateString = now.toISOString().split('T')[0]; // YYYY-MM-DD
+  const currentDateString = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
   const currentMonthYear = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+  const todayFormatted = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   const [viewedMonthYear, setViewedMonthYear] = useState(currentMonthYear);
 
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -1197,6 +1198,10 @@ export default function WorkTracker() {
           </View>
         </View>
         
+        <View style={{ paddingHorizontal: 24, marginBottom: 10, marginTop: -5 }}>
+          <Text style={{ color: '#3B82F6', fontWeight: 'bold', fontSize: 13, textTransform: 'uppercase', letterSpacing: 1.2 }}>Today is {todayFormatted}</Text>
+        </View>
+
         <View style={styles.dashboardRow}>
           <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
             <Svg height="100" width="100" viewBox="0 0 100 100">
@@ -1324,16 +1329,17 @@ export default function WorkTracker() {
                 <Text style={styles.weeklyBreakdownTitle}>Daily Breakdown</Text>
                 {dailyTotalsList.map((item, index) => {
                   const dayOfWeek = new Date(item.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+                  const isToday = item.date === currentDateString;
                   return (
-                  <TouchableOpacity key={index} style={styles.weekRow} onPress={() => handleDayPress({ dateString: item.date })} activeOpacity={0.7}>
+                  <TouchableOpacity key={index} style={[styles.weekRow, isToday && { borderColor: '#3B82F6', borderWidth: 1 }]} onPress={() => handleDayPress({ dateString: item.date })} activeOpacity={0.7}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={styles.weekLabel}>{item.date} ({dayOfWeek})</Text>
-                      <ChevronRight size={16} color="#475569" style={{ marginLeft: 5 }} />
+                      <Text style={[styles.weekLabel, isToday && { color: '#F8FAFC' }]}>{item.date} ({dayOfWeek}){isToday ? " - TODAY" : ""}</Text>
+                      <ChevronRight size={16} color={isToday ? "#3B82F6" : "#475569"} style={{ marginLeft: 5 }} />
                     </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
+                      <Text style={[styles.weekHours, isToday && { color: '#3B82F6' }]}>{item.hrs.toFixed(1)} hrs</Text>
                       <View style={{ width: 1, height: 15, backgroundColor: '#475569', marginHorizontal: 10 }} />
-                      <Text style={[styles.weekHours, { color: '#0a7ea4' }]}>{item.miles.toFixed(1)} mi</Text>
+                      <Text style={[styles.weekHours, { color: '#0a7ea4' }, isToday && { color: '#38bdf8' }]}>{item.miles.toFixed(1)} mi</Text>
                     </View>
                   </TouchableOpacity>
                 )})}
