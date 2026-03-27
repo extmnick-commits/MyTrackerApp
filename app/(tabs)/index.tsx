@@ -1266,10 +1266,14 @@ export default function WorkTracker() {
                 containerStyle.backgroundColor = marking.selectedColor || '#3B82F6';
                 textColor = '#FFF';
               } else if (isToday) {
-                containerStyle.backgroundColor = '#334155'; // A subtle background for today
-                containerStyle.borderWidth = 1;
-                containerStyle.borderColor = '#0a7ea4'; // Distinct border for today
-                textColor = '#FFF';
+                containerStyle.backgroundColor = '#0a7ea4'; // Bright cyan for today
+                containerStyle.borderWidth = 2;
+                containerStyle.borderColor = '#0891B2'; // Darker cyan border
+                textColor = '#0F172A'; // Dark text for better contrast
+                containerStyle.shadowColor = '#0a7ea4';
+                containerStyle.shadowOpacity = 0.5;
+                containerStyle.shadowRadius = 4;
+                containerStyle.elevation = 8;
               }
 
               if (highlightProjected && isProjected) {
