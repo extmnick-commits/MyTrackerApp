@@ -114,6 +114,7 @@ export default function WorkTracker() {
   });
 
   const now = new Date();
+  const currentDateString = now.toISOString().split('T')[0]; // YYYY-MM-DD
   const currentMonthYear = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
   const [viewedMonthYear, setViewedMonthYear] = useState(currentMonthYear);
 
@@ -1165,6 +1166,14 @@ export default function WorkTracker() {
     const isProj = workLogs[selectedDate]?.isProjected;
     markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: isProj ? '#F59E0B' : '#3B82F6' };
   }
+  // Add today's date marking
+  if (viewedMonthYear === currentMonthYear) { // Only mark today if viewing the current month
+    if (!markedDates[currentDateString]) {
+      markedDates[currentDateString] = { today: true };
+    } else {
+      markedDates[currentDateString].today = true;
+    }
+  }
 
   if (!user) {
     return (
@@ -1237,11 +1246,40 @@ export default function WorkTracker() {
               const isSelected = marking?.selected;
               const hasReceipt = marking?.hasReceipt;
               const isMarked = marking?.marked;
-              const shouldHighlight = highlightProjected && marking?.isProj;
+              const isProjected = marking?.isProj;
+              const isToday = marking?.today;
+
+              let containerStyle: any = {
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: 36,
+                width: 36,
+                borderRadius: 18,
+                borderWidth: 0,
+                borderColor: 'transparent',
+                backgroundColor: 'transparent',
+              };
+
+              let textColor = state === 'disabled' ? '#475569' : '#F8FAFC';
+
+              if (isSelected) {
+                containerStyle.backgroundColor = marking.selectedColor || '#3B82F6';
+                textColor = '#FFF';
+              } else if (isToday) {
+                containerStyle.backgroundColor = '#334155'; // A subtle background for today
+                containerStyle.borderWidth = 1;
+                containerStyle.borderColor = '#0a7ea4'; // Distinct border for today
+                textColor = '#FFF';
+              }
+
+              if (highlightProjected && isProjected) {
+                containerStyle.borderWidth = 2;
+                containerStyle.borderColor = '#F59E0B';
+              }
               return (
-                <View style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, backgroundColor: isSelected ? '#3B82F6' : 'transparent', borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: '#F59E0B'}}>
+                <View style={containerStyle}>
                    <TouchableOpacity onPress={() => handleDayPress(date)} style={{ position: 'absolute', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-start', paddingTop: 5 }}>
-                     <Text style={{color: state === 'disabled' ? '#475569' : isSelected ? '#FFF' : '#F8FAFC'}}>{date.day}</Text>
+                     <Text style={{color: textColor}}>{date.day}</Text>
                    </TouchableOpacity>
                    <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
                      {isMarked && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6', marginRight: hasReceipt ? 4 : 0}} />}
