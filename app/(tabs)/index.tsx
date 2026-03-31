@@ -195,7 +195,10 @@ export default function WorkTracker() {
     if (!user) return;
 
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
-    const allDates = new Set([...Object.keys(workLogs), ...tripsThisMonth.map(t => t.date)]);
+    const allDates = new Set([
+      ...Object.keys(workLogs).filter(dateStr => dateStr.startsWith(viewedMonthYear)),
+      ...tripsThisMonth.map(t => t.date)
+    ]);
     
     let totalActual = 0;
     let totalProjected = 0;
@@ -236,7 +239,7 @@ export default function WorkTracker() {
     });
     
     setHoursWorked(totalActual);
-    setProjectedHours(totalActual + totalProjected);
+    setProjectedHours(totalProjected); // Now only shows explicitly projected hours
 
     const weeklyArray = Object.keys(weekGroups).map(key => ({
       week: key,
@@ -455,7 +458,7 @@ export default function WorkTracker() {
     
     // Get a unique set of all dates that have EITHER a work log or a trip
     const allDates = new Set([
-      ...Object.keys(workLogs),
+      ...Object.keys(workLogs).filter(dateStr => dateStr.startsWith(viewedMonthYear)),
       ...tripsThisMonth.map(t => t.date)
     ]);
     const sortedDates = Array.from(allDates).sort();
@@ -825,6 +828,7 @@ export default function WorkTracker() {
 
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
+    if (!date.startsWith(viewedMonthYear)) return; // Filter out legacy fields/other months
     const isProj = workLogs[date]?.isProjected;
     markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', isProj };
   });

@@ -76,7 +76,7 @@ export default function FamilyDashboard() {
     const docRef = doc(db, 'users', caregiverId, 'workLogs', viewedMonthYear);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
-      const { notes, monthlyHourLimit, ...logs } = data;
+      const { notes, monthlyHourLimit, monthlyMilesLimit, ...logs } = data; // Also safely extract monthlyMilesLimit
       setWorkLogs(logs);
       setMonthlyLimit(monthlyHourLimit !== undefined ? monthlyHourLimit : defaultMonthlyLimit);
     });
@@ -84,7 +84,7 @@ export default function FamilyDashboard() {
   }, [viewedMonthYear, caregiverId, defaultMonthlyLimit]);
 
   useEffect(() => {
-    const allDates = Object.keys(workLogs);
+    const allDates = Object.keys(workLogs).filter(dateStr => dateStr.startsWith(viewedMonthYear));
     let totalActual = 0;
     let totalProjected = 0;
     const weekGroups: Record<string, number> = {};
@@ -113,7 +113,7 @@ export default function FamilyDashboard() {
     });
     
     setHoursWorked(totalActual);
-    setProjectedHours(totalActual + totalProjected);
+    setProjectedHours(totalProjected); // Now only shows explicitly projected hours
 
     const weeklyArray = Object.keys(weekGroups).map(key => ({
       week: key,
@@ -138,6 +138,7 @@ export default function FamilyDashboard() {
       const weekNum = parseInt(selectedWeek.replace('Week ', ''));
       const logs = Object.keys(workLogs)
         .filter(dateStr => {
+           if (!dateStr.startsWith(viewedMonthYear)) return false; // Safety check
            const day = parseInt(dateStr.split('-')[2]);
            return Math.ceil(day / 7) === weekNum;
         })
@@ -166,6 +167,7 @@ export default function FamilyDashboard() {
 
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
+    if (!date.startsWith(viewedMonthYear)) return; // Filter out legacy fields/other months
     const isProj = workLogs[date]?.isProjected;
     markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', isProj };
   });
