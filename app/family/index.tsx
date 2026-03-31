@@ -24,6 +24,7 @@ export default function FamilyDashboard() {
   
   // Limits
   const [monthlyLimit, setMonthlyLimit] = useState(75);
+  const [defaultMonthlyLimit, setDefaultMonthlyLimit] = useState(75);
   const [highlightProjected, setHighlightProjected] = useState(false);
 
   // Current Stats
@@ -63,7 +64,7 @@ export default function FamilyDashboard() {
     const userDocRef = doc(db, 'users', caregiverId);
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
-        setMonthlyLimit(docSnap.data().monthlyHourLimit || 75);
+        setDefaultMonthlyLimit(docSnap.data().monthlyHourLimit || 75);
       }
     });
     return () => unsubscribe();
@@ -71,14 +72,16 @@ export default function FamilyDashboard() {
 
   useEffect(() => {
     if (!caregiverId) return;
+
     const docRef = doc(db, 'users', caregiverId, 'workLogs', viewedMonthYear);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
-      const { notes, ...logs } = data;
+      const { notes, monthlyHourLimit, ...logs } = data;
       setWorkLogs(logs);
+      setMonthlyLimit(monthlyHourLimit !== undefined ? monthlyHourLimit : defaultMonthlyLimit);
     });
     return () => unsubscribe();
-  }, [viewedMonthYear, caregiverId]);
+  }, [viewedMonthYear, caregiverId, defaultMonthlyLimit]);
 
   useEffect(() => {
     const allDates = Object.keys(workLogs);

@@ -1,22 +1,16 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as AuthSession from 'expo-auth-session';
-import * as Google from 'expo-auth-session/providers/google';
-import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
 import * as MailComposer from 'expo-mail-composer';
 import * as Print from 'expo-print';
-import { router, useFocusEffect, useNavigation } from 'expo-router';
+import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
 import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { Camera, CheckCircle2, ChevronRight, Edit2, FileText, LogOut, MapPin, Paperclip, Printer, Settings, Trash2, UploadCloud, X } from 'lucide-react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { CheckCircle2, ChevronRight, Edit2, FileText, LogOut, MapPin, Printer, Settings, Trash2, X } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -41,8 +35,10 @@ export default function WorkTracker() {
   const { user } = useAuth();
 
   // Limits
-  const [monthlyLimit, setMonthlyLimit] = useState(75);
-  const [monthlyMilesLimit, setMonthlyMilesLimit] = useState(500); 
+  const [monthlyLimit, setMonthlyLimit] = useState(75); // Limit for the currently viewed month
+  const [monthlyMilesLimit, setMonthlyMilesLimit] = useState(500); // Limit for the currently viewed month
+  const [defaultMonthlyHourLimit, setDefaultMonthlyHourLimit] = useState(75); // Global default from user doc
+  const [defaultMonthlyMilesLimit, setDefaultMonthlyMilesLimit] = useState(500); // Global default from user doc
 
   // Current Stats
   const [hoursWorked, setHoursWorked] = useState(0);
@@ -93,26 +89,6 @@ export default function WorkTracker() {
   const [calculatedShift, setCalculatedShift] = useState(0);
   const [isProjectedShift, setIsProjectedShift] = useState(false);
   
-  // Google Drive Upload State
-  const [googleToken, setGoogleToken] = useState<string | null>(null);
-  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [activeXhr, setActiveXhr] = useState<XMLHttpRequest | null>(null);
-  const [monthReceipts, setMonthReceipts] = useState<Record<string, any[]>>({});
-  const [receiptCategory, setReceiptCategory] = useState('Food');
-  const [customCategory, setCustomCategory] = useState('');
-
-  const redirectUri = AuthSession.makeRedirectUri();
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: '227348535128-k3nj9opn7v87kherceneda0h1o2ja2r7.apps.googleusercontent.com',
-    iosClientId: '227348535128-k3nj9opn7v87kherceneda0h1o2ja2r7.apps.googleusercontent.com',
-    androidClientId: '227348535128-k3nj9opn7v87kherceneda0h1o2ja2r7.apps.googleusercontent.com',
-    redirectUri,
-    scopes: [
-      'https://www.googleapis.com/auth/drive.file',
-    ],
-  });
-
   const now = new Date();
   const currentDateString = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
   const currentMonthYear = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -123,83 +99,6 @@ export default function WorkTracker() {
   const [yearStr, monthStr] = viewedMonthYear.split('-');
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
 
-  // Keep Google Token perfectly in sync across tabs!
-  useFocusEffect(
-    useCallback(() => {
-      const loadToken = async () => {
-        const storedToken = await AsyncStorage.getItem('googleDriveToken');
-        if (storedToken !== googleToken) {
-          setGoogleToken(storedToken);
-        }
-      };
-      loadToken();
-    }, [googleToken])
-  );
-
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const token = response.authentication?.accessToken || null;
-      if (token) AsyncStorage.setItem('googleDriveToken', token);
-      setGoogleToken(token);
-    }
-  }, [response]);
-
-  const fetchMonthlyReceipts = async () => {
-    if (!googleToken || !viewedMonthYear) return;
-    try {
-      const masterFolderId = await AsyncStorage.getItem('defaultFolderId');
-      if (!masterFolderId) return; // Silent return, let them set it up in Receipts tab
-
-      const folderName = `Receipts - ${viewedMonthYear}`;
-      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${folderName}' and '${masterFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, { headers: { Authorization: `Bearer ${googleToken}` } });
-      
-      // If the session token is expired, clear it out.
-      if (searchRes.status === 401) {
-        await AsyncStorage.removeItem('googleDriveToken');
-        setGoogleToken(null);
-        return;
-      }
-
-      const searchData = await searchRes.json();
-      
-      if (!searchData.files || searchData.files.length === 0) return setMonthReceipts({});
-      
-      const folderId = searchData.files[0].id;
-      const itemsRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}' in parents and trashed=false`)}&fields=files(id,name,mimeType,webViewLink)`, { headers: { Authorization: `Bearer ${googleToken}` } });
-      const itemsData = await itemsRes.json();
-
-      let allFiles: any[] = [];
-      if (itemsData.files) {
-        const subFolderIds = itemsData.files.filter((f: any) => f.mimeType === 'application/vnd.google-apps.folder').map((f: any) => f.id);
-        allFiles = itemsData.files.filter((f: any) => f.mimeType !== 'application/vnd.google-apps.folder');
-
-        if (subFolderIds.length > 0) {
-          const parentQueries = subFolderIds.map((id: string) => `'${id}' in parents`).join(' or ');
-          const subFilesRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`(${parentQueries}) and trashed=false`)}&fields=files(id,name,webViewLink)`, { headers: { Authorization: `Bearer ${googleToken}` } });
-          const subFilesData = await subFilesRes.json();
-          if (subFilesData.files) {
-            allFiles = [...allFiles, ...subFilesData.files];
-          }
-        }
-      }
-
-      const receiptsByDate: Record<string, any[]> = {};
-      allFiles.forEach((file: any) => {
-        const match = file.name.match(/^\d{4}-\d{2}-\d{2}/);
-        if (match) {
-          const date = match[0];
-          if (!receiptsByDate[date]) receiptsByDate[date] = [];
-          receiptsByDate[date].push(file);
-        }
-      });
-      setMonthReceipts(receiptsByDate);
-    } catch (error) { console.error("Error fetching month receipts:", error); }
-  };
-
-  useEffect(() => {
-    fetchMonthlyReceipts();
-  }, [googleToken, viewedMonthYear]);
-
   // Sync monthly goals with Firebase
   useEffect(() => {
     if (!user) return;
@@ -208,14 +107,33 @@ export default function WorkTracker() {
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setMonthlyLimit(data.monthlyHourLimit || 75);
-        setMonthlyMilesLimit(data.monthlyMilesLimit || 500);
+        setDefaultMonthlyHourLimit(data.monthlyHourLimit || 75);
+        setDefaultMonthlyMilesLimit(data.monthlyMilesLimit || 500);
         setFamilyPin(data.familyPin || '');
         setCompanyName(data.companyName || '');
       }
     });
     return () => unsubscribe();
   }, [user]);
+
+  // Sync monthly work logs and limits for the currently viewed month
+  useEffect(() => {
+    if (!user) return;
+
+    const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      const data = docSnap.exists() ? docSnap.data() : {};
+      const { notes, monthlyHourLimit: monthHrsLimit, monthlyMilesLimit: monthMilesLimit, ...logs } = data;
+      
+      setWorkLogs(logs);
+      setMonthlyNotes(notes || '');
+
+      // Set monthly limits, falling back to global defaults if not defined for the month
+      setMonthlyLimit(monthHrsLimit !== undefined ? monthHrsLimit : defaultMonthlyHourLimit);
+      setMonthlyMilesLimit(monthMilesLimit !== undefined ? monthMilesLimit : defaultMonthlyMilesLimit);
+    });
+    return () => unsubscribe();
+  }, [viewedMonthYear, user, defaultMonthlyHourLimit, defaultMonthlyMilesLimit]); // Depend on defaults to update if they change
 
   useEffect(() => {
     if (!user) {
@@ -272,19 +190,6 @@ export default function WorkTracker() {
       setWeekTrips(trips);
     }
   }, [mileageHistory, selectedWeek, viewedMonthYear]);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const docRef = doc(db, 'users', user.uid, 'workLogs', viewedMonthYear);
-    const unsubscribe = onSnapshot(docRef, (docSnap) => {
-      const data = docSnap.exists() ? docSnap.data() : {};
-      const { notes, ...logs } = data;
-      setWorkLogs(logs);
-      setMonthlyNotes(notes || '');
-    });
-    return () => unsubscribe();
-  }, [viewedMonthYear, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -381,9 +286,10 @@ export default function WorkTracker() {
       const userDocRef = doc(db, 'users', user.uid);
       try {
         if (limitModalType === 'hours') {
-          await setDoc(userDocRef, { monthlyHourLimit: parsed }, { merge: true });
-        } else {
-          await setDoc(userDocRef, { monthlyMilesLimit: parsed }, { merge: true });
+          // Update the monthly workLogs document for the currently viewed month
+          await setDoc(doc(db, 'users', user.uid, 'workLogs', viewedMonthYear), { monthlyHourLimit: parsed }, { merge: true });
+        } else { // limitModalType === 'miles'
+          await setDoc(doc(db, 'users', user.uid, 'workLogs', viewedMonthYear), { monthlyMilesLimit: parsed }, { merge: true });
         }
         setLimitModalType(null);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -595,39 +501,6 @@ export default function WorkTracker() {
     const estDeduction = (monthlyMiles * 0.67).toFixed(2);
     const totalDaysWorked = sortedDates.length;
 
-    // Generate Receipts Breakdown Table
-    let receiptsHtml = '';
-    let hasReceipts = false;
-    const categoryMap: Record<string, any[]> = {};
-
-    Object.keys(monthReceipts).forEach(date => {
-      monthReceipts[date].forEach(r => {
-        hasReceipts = true;
-        const parts = r.name.split('_');
-        let cat = 'Uncategorized';
-        let originalName = r.name;
-        if (parts.length >= 3 && parts[0] === date) {
-           cat = parts[1];
-           originalName = parts.slice(2).join('_');
-        }
-        if (!categoryMap[cat]) categoryMap[cat] = [];
-        categoryMap[cat].push({ date, name: originalName });
-      });
-    });
-
-    if (hasReceipts) {
-      const receiptRows = Object.keys(categoryMap).sort().flatMap(cat => {
-        return categoryMap[cat].map(r => `<tr><td class="val-cell">${cat}</td><td>${r.date}</td><td>${r.name}</td></tr>`);
-      }).join('');
-
-      receiptsHtml = `
-        <div style="margin-top: 40px; page-break-inside: avoid;">
-          <h3 style="color: #0F172A; margin-bottom: 15px; border-bottom: 2px solid #E2E8F0; padding-bottom: 5px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.5px;">Attached Receipts Breakdown</h3>
-          <table><thead><tr><th style="width: 25%;">Category</th><th style="width: 20%;">Date</th><th style="width: 55%;">Document Name</th></tr></thead><tbody>${receiptRows}</tbody></table>
-        </div>
-      `;
-    }
-
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -743,8 +616,6 @@ export default function WorkTracker() {
           ` : ''}
         </table>
         
-        ${receiptsHtml}
-
         <div class="signatures">
           <div class="sig-block">
             <div class="sig-line">Caregiver Signature</div>
@@ -946,205 +817,6 @@ export default function WorkTracker() {
     }
   };
 
-  const handleDriveUpload = async (uri: string, mimeType: string, fileName: string, shiftDate: string, category: string) => {
-    let token = googleToken;
-    if (!token) {
-      if (request) {
-        const result = await promptAsync();
-        if (result?.type === 'success') {
-          token = result.authentication?.accessToken || null;
-          setGoogleToken(token);
-        } else return; // User cancelled auth
-      } else {
-        Alert.alert("Not Ready", "Google Drive authentication is initializing.");
-        return;
-      }
-    }
-    if (!token) return;
-
-    setIsUploadingReceipt(true);
-    setUploadProgress(0);
-    let createdFileId = '';
-    try {
-      const masterFolderId = await AsyncStorage.getItem('defaultFolderId');
-      if (!masterFolderId) {
-        Alert.alert('Setup Required', 'To keep your Google Drive organized, please open the Receipts tab first to set up your master folder!');
-        setIsUploadingReceipt(false);
-        return;
-      }
-
-      const monthString = shiftDate.slice(0, 7); // e.g., "2024-03"
-      const monthFolderName = `Receipts - ${monthString}`;
-
-      // 1. Get or Create Month Folder
-      const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${monthFolderName}' and '${masterFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const searchData = await searchRes.json();
-      
-      let monthFolderId = '';
-      if (searchData.files && searchData.files.length > 0) {
-        monthFolderId = searchData.files[0].id;
-      } else {
-        const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: monthFolderName, mimeType: 'application/vnd.google-apps.folder', parents: [masterFolderId] }),
-        });
-        const createData = await createRes.json();
-        if (!createData.id) throw new Error("Failed to create folder");
-        monthFolderId = createData.id;
-      }
-
-      // 2. Get or Create Category Subfolder inside Month Folder
-      const catSearchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`name='${category}' and '${monthFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`)}&fields=files(id)`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const catSearchData = await catSearchRes.json();
-      
-      let categoryFolderId = '';
-      if (catSearchData.files && catSearchData.files.length > 0) {
-        categoryFolderId = catSearchData.files[0].id;
-      } else {
-        const createCatRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: category, mimeType: 'application/vnd.google-apps.folder', parents: [monthFolderId] }),
-        });
-        const createCatData = await createCatRes.json();
-        categoryFolderId = createCatData.id;
-      }
-
-      // 3. Upload file into the specific Category Folder
-      const metadataRes = await fetch('https://www.googleapis.com/drive/v3/files', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `${shiftDate}_${category}_${fileName}`, mimeType, parents: [categoryFolderId] }),
-      });
-      const metadata = await metadataRes.json();
-      if (!metadata.id) throw new Error('Failed to create file metadata');
-      createdFileId = metadata.id;
-
-      const localFile = await fetch(uri);
-      const blob = await localFile.blob();
-
-      await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        setActiveXhr(xhr);
-        xhr.open('PATCH', `https://www.googleapis.com/upload/drive/v3/files/${metadata.id}?uploadType=media`);
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        xhr.setRequestHeader('Content-Type', mimeType);
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            setUploadProgress(Math.round((event.loaded / event.total) * 100));
-          }
-        };
-        xhr.onload = () => {
-          setActiveXhr(null);
-          if (xhr.status >= 200 && xhr.status < 300) resolve(true);
-          else reject(new Error('Failed to upload file content'));
-        };
-        xhr.onerror = () => {
-          setActiveXhr(null);
-          reject(new Error('Network error during upload'));
-        };
-        xhr.onabort = () => {
-          setActiveXhr(null);
-          reject(new Error('Upload cancelled'));
-        };
-        xhr.send(blob);
-      });
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert('Success', `Receipt saved directly to your ${category} folder in Google Drive!`);
-      fetchMonthlyReceipts(); // Refresh the visible cache
-    } catch (error: any) {
-      console.error(error);
-      if (error.message === 'Upload cancelled') {
-        if (createdFileId) {
-          fetch(`https://www.googleapis.com/drive/v3/files/${createdFileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(e => console.error("Failed to cleanup file", e));
-        }
-      } else {
-        Alert.alert('Upload Error', 'Failed to upload receipt. Your Google session may have expired.');
-        await AsyncStorage.removeItem('googleDriveToken');
-        setGoogleToken(null);
-      }
-    } finally {
-      setIsUploadingReceipt(false);
-      setActiveXhr(null);
-    }
-  };
-
-  const pickReceiptForShift = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ['image/*', 'application/pdf'], copyToCacheDirectory: true });
-      if (result.canceled) return;
-      const file = result.assets[0];
-      const finalCat = receiptCategory === 'Custom' ? (customCategory.trim().replace(/'/g, "") || 'Other') : receiptCategory;
-      await handleDriveUpload(file.uri, file.mimeType || 'application/octet-stream', file.name, selectedDate, finalCat);
-    } catch (error) { Alert.alert('Error', 'Failed to pick document.'); }
-  };
-
-  const takePhotoForShift = async () => {
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') return Alert.alert('Permission Denied', 'Camera access is required to take photos.');
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.4, base64: true });
-      if (!result.canceled) {
-        setIsUploadingReceipt(true);
-        try {
-          const asset = result.assets[0];
-          // Automatically convert the photo directly to a PDF using Expo Print
-          const htmlContent = `
-            <!DOCTYPE html>
-            <html>
-              <head>
-                <style>
-                  @page { margin: 0; }
-                  body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: white; }
-                  img { max-width: 100%; max-height: 100%; object-fit: contain; }
-                </style>
-              </head>
-              <body><img src="data:image/jpeg;base64,${asset.base64}" /></body>
-            </html>
-          `;
-          const { uri: pdfUri } = await Print.printToFileAsync({ html: htmlContent, base64: false });
-          const fileName = `Photo_${Date.now()}.pdf`;
-          
-          const finalCat = receiptCategory === 'Custom' ? (customCategory.trim().replace(/'/g, "") || 'Other') : receiptCategory;
-          await handleDriveUpload(pdfUri, 'application/pdf', fileName, selectedDate, finalCat);
-        } catch(e) {
-          Alert.alert('Error', 'Failed to convert photo to PDF.');
-          setIsUploadingReceipt(false);
-        }
-      }
-    } catch (error) { Alert.alert('Error', 'Failed to take photo.'); }
-  };
-
-  const deleteReceipt = (fileId: string, fileName: string) => {
-    const executeDelete = async () => {
-      try {
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${googleToken}` },
-        });
-        if (res.ok || res.status === 204) {
-          fetchMonthlyReceipts();
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } else throw new Error("Failed to delete");
-      } catch(e) { Alert.alert("Error", "Could not delete receipt"); }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Are you sure you want to delete ${fileName}?`)) executeDelete();
-    } else {
-      Alert.alert("Delete Receipt", `Are you sure you want to delete ${fileName}?`, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: executeDelete }
-      ]);
-    }
-  };
-
   const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
   const colorHours = hoursWorked > monthlyLimit ? "#EF4444" : "#3B82F6";
   const progressProjected = Math.min((projectedHours / monthlyLimit) * 100, 100);
@@ -1154,14 +826,7 @@ export default function WorkTracker() {
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
     const isProj = workLogs[date]?.isProjected;
-    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', hasReceipt: !!(monthReceipts[date] && monthReceipts[date].length > 0), isProj };
-  });
-  Object.keys(monthReceipts).forEach(date => {
-    if (!markedDates[date]) {
-      markedDates[date] = { marked: false, hasReceipt: true };
-    } else {
-      markedDates[date].hasReceipt = true;
-    }
+    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', isProj };
   });
   if (selectedDate) {
     const isProj = workLogs[selectedDate]?.isProjected;
@@ -1249,7 +914,6 @@ export default function WorkTracker() {
             dayComponent={({date, state}: any) => {
               const marking = markedDates[date.dateString];
               const isSelected = marking?.selected;
-              const hasReceipt = marking?.hasReceipt;
               const isMarked = marking?.marked;
               const isProjected = marking?.isProj;
               const isToday = marking?.today;
@@ -1291,12 +955,7 @@ export default function WorkTracker() {
                      <Text style={{color: textColor}}>{date.day}</Text>
                    </TouchableOpacity>
                    <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
-                     {isMarked && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6', marginRight: hasReceipt ? 4 : 0}} />}
-                     {hasReceipt && (
-                       <TouchableOpacity onPress={() => router.push('/receipts')} hitSlop={{top: 15, bottom: 15, left: 15, right: 15}}>
-                         <Paperclip size={10} color={isSelected ? '#FFF' : '#10B981'} />
-                       </TouchableOpacity>
-                     )}
+                     {isMarked && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6'}} />}
                    </View>
                 </View>
               );
@@ -1397,20 +1056,6 @@ export default function WorkTracker() {
                         })}
                       </View>
                     ) : <Text style={styles.legacyText}>{trip.stopsCount} stops (Legacy Data)</Text>}
-
-                    {monthReceipts[trip.date] && monthReceipts[trip.date].length > 0 && (
-                      <View style={{ marginTop: 15, borderTopWidth: 1, borderTopColor: '#334155', paddingTop: 15 }}>
-                        <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Attached Receipts</Text>
-                        {monthReceipts[trip.date].map(r => (
-                           <View key={r.id} style={[styles.receiptItem, { backgroundColor: '#0F172A', marginBottom: 5, padding: 10 }]}>
-                             <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} onPress={() => Linking.openURL(r.webViewLink)}>
-                               <FileText size={16} color="#3B82F6" />
-                               <Text style={[styles.receiptItemText, { fontSize: 13 }]} numberOfLines={1} ellipsizeMode="middle">{r.name}</Text>
-                             </TouchableOpacity>
-                           </View>
-                        ))}
-                      </View>
-                    )}
 
                     <View style={styles.premiumActions}>
                       <TouchableOpacity style={styles.actionPill} onPress={() => { setManualEditTrip(trip); setManualEditMiles(trip.miles.toString()); }}>
@@ -1606,92 +1251,6 @@ export default function WorkTracker() {
               <Text style={[styles.durationText, { color: '#0a7ea4' }]}>{dayMiles.toFixed(1)} mi</Text>
             </View>
 
-            <View style={{ marginBottom: 15 }}>
-              <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Select Category</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {['Food', 'Outings', 'Gas', 'Supplies', 'Other', 'Custom'].map(cat => (
-                  <TouchableOpacity 
-                    key={cat} 
-                    onPress={() => setReceiptCategory(cat)}
-                    style={{ 
-                      backgroundColor: receiptCategory === cat ? '#3B82F6' : '#1E293B', 
-                      paddingVertical: 8, 
-                      paddingHorizontal: 12, 
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: receiptCategory === cat ? '#3B82F6' : '#334155'
-                    }}>
-                    <Text style={{ color: receiptCategory === cat ? '#FFF' : '#94A3B8', fontSize: 13, fontWeight: 'bold' }}>{cat}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              {receiptCategory === 'Custom' && (
-                <TextInput
-                  style={[styles.loginInput, { marginTop: 10, marginBottom: 0, paddingVertical: 10, fontSize: 14 }]}
-                  placeholder="Enter custom category name..."
-                  placeholderTextColor="#94A3B8"
-                  value={customCategory}
-                  onChangeText={setCustomCategory}
-                  maxLength={30}
-                />
-              )}
-            </View>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 15 }}>
-               <TouchableOpacity style={[styles.saveButton, { flex: 1, backgroundColor: '#10B981', flexDirection: 'row', justifyContent: 'center' }]} onPress={takePhotoForShift} disabled={isUploadingReceipt}>
-                  {isUploadingReceipt ? <ActivityIndicator color="#fff" size="small" /> : <Camera size={18} color="#fff" style={{ marginRight: 5 }} />}
-                  <Text style={[styles.saveButtonText, { fontSize: 14 }]}>Photo Receipt</Text>
-               </TouchableOpacity>
-               <TouchableOpacity style={[styles.saveButton, { flex: 1, backgroundColor: '#10B981', flexDirection: 'row', justifyContent: 'center' }]} onPress={pickReceiptForShift} disabled={isUploadingReceipt}>
-                  {isUploadingReceipt ? <ActivityIndicator color="#fff" size="small" /> : <UploadCloud size={18} color="#fff" style={{ marginRight: 5 }} />}
-                  <Text style={[styles.saveButtonText, { fontSize: 14 }]}>File Receipt</Text>
-               </TouchableOpacity>
-            </View>
-
-        {isUploadingReceipt && uploadProgress > 0 && (
-          <View style={{ marginBottom: 15 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-              <Text style={{ color: '#10B981', fontSize: 12, fontWeight: 'bold' }}>UPLOADING...</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={{ color: '#10B981', fontSize: 12, fontWeight: 'bold', marginRight: 10 }}>{uploadProgress}%</Text>
-                {activeXhr && (
-                  <TouchableOpacity onPress={() => activeXhr.abort()}>
-                    <X size={16} color="#EF4444" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-            <View style={{ height: 6, backgroundColor: '#1E293B', borderRadius: 3, overflow: 'hidden' }}>
-              <View style={{ height: '100%', width: `${uploadProgress}%`, backgroundColor: '#10B981' }} />
-            </View>
-          </View>
-        )}
-
-            <View style={{ marginBottom: 20 }}>
-               {!googleToken ? (
-                 <TouchableOpacity onPress={() => promptAsync()} style={styles.viewReceiptsBtn}>
-                   <Text style={styles.viewReceiptsText}>Sign in to view Receipts</Text>
-                 </TouchableOpacity>
-               ) : !monthReceipts[selectedDate] || monthReceipts[selectedDate].length === 0 ? (
-                 <Text style={{ color: '#94A3B8', textAlign: 'center', fontSize: 13, fontStyle: 'italic' }}>No receipts attached to this shift.</Text>
-               ) : (
-                 <View style={{ gap: 8 }}>
-                   <Text style={{ color: '#94A3B8', fontSize: 12, fontWeight: 'bold', marginBottom: 2, textTransform: 'uppercase' }}>ATTACHED RECEIPTS</Text>
-                   {monthReceipts[selectedDate].map(r => (
-                     <View key={r.id} style={styles.receiptItem}>
-                       <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }} onPress={() => Linking.openURL(r.webViewLink)}>
-                         <FileText size={18} color="#3B82F6" />
-                         <Text style={styles.receiptItemText} numberOfLines={1} ellipsizeMode="middle">{r.name}</Text>
-                       </TouchableOpacity>
-                       <TouchableOpacity onPress={() => deleteReceipt(r.id, r.name)} style={{ padding: 8 }}>
-                         <Trash2 size={18} color="#EF4444" />
-                       </TouchableOpacity>
-                     </View>
-                   ))}
-                 </View>
-               )}
-            </View>
-
             <TouchableOpacity style={styles.saveButton} onPress={saveHours}><Text style={styles.saveButtonText}>Save Shift</Text></TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -1762,10 +1321,6 @@ const styles = StyleSheet.create({
   rememberText: { color: '#94A3B8', fontSize: 16, marginLeft: 10 },
   loginButton: { backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 10 },
   loginButtonText: { color: '#FFF', fontWeight: 'bold', fontSize: 18 },
-  viewReceiptsBtn: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 15, backgroundColor: '#3b82f620', borderRadius: 12 },
-  viewReceiptsText: { color: '#3B82F6', fontWeight: 'bold', fontSize: 14 },
-  receiptItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0F172A', padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#1E293B' },
-  receiptItemText: { color: '#F8FAFC', marginLeft: 10, fontSize: 14, flex: 1, fontWeight: '500' },
 
   // Premium Weekly Breakdown Modal Styles
   premiumModalContainer: { flex: 1, backgroundColor: '#0F172A' },

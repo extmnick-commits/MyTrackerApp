@@ -37,13 +37,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <TabBarIcon name="car" color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="receipts"
-        options={{
-          title: 'Receipts',
-          tabBarIcon: ({ color }) => <TabBarIcon name="file-text" color={color} />,
-        }}
-      />
     </Tabs>
   );
 }
