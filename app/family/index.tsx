@@ -165,6 +165,12 @@ export default function FamilyDashboard() {
   const colorHours = hoursWorked > monthlyLimit ? "#10b981" : "#3B82F6"; // Use green if they hit goal
   const progressProjected = Math.min((projectedHours / monthlyLimit) * 100, 100);
 
+  // Projected Remaining calculations
+  const totalProjectedConsumed = hoursWorked + projectedHours;
+  const projectedRemainingHours = monthlyLimit - totalProjectedConsumed;
+  const progressProjRemain = Math.min((totalProjectedConsumed / monthlyLimit) * 100, 100);
+  const colorProjRemain = projectedRemainingHours < 0 ? "#EF4444" : "#10B981";
+
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
     if (!date.startsWith(viewedMonthYear)) return; // Filter out legacy fields/other months
@@ -196,8 +202,8 @@ export default function FamilyDashboard() {
         </View>
         
         <View style={styles.dashboardRow}>
-          <View style={styles.dashboardCardHalf}>
-            <Svg height="140" width="140" viewBox="0 0 100 100">
+          <View style={styles.dashboardCardThird}>
+            <Svg height="100" width="100" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="45" stroke={colorHours} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressHours * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
@@ -205,11 +211,11 @@ export default function FamilyDashboard() {
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text>
             </View>
-            <Text style={styles.chartLabel}>Remaining Hrs</Text>
+            <Text style={styles.chartLabel} numberOfLines={1}>Remain</Text>
           </View>
 
-          <TouchableOpacity style={styles.dashboardCardHalf} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
-            <Svg height="140" width="140" viewBox="0 0 100 100">
+          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
+            <Svg height="100" width="100" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="8" fill="none"
                 strokeDasharray={`${progressProjected * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
@@ -217,8 +223,20 @@ export default function FamilyDashboard() {
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
             </View>
-            <Text style={[styles.chartLabel, { color: '#F59E0B' }]}>Projected</Text>
+            <Text style={[styles.chartLabel, { color: '#F59E0B' }]} numberOfLines={1}>Projected</Text>
           </TouchableOpacity>
+
+          <View style={styles.dashboardCardThird}>
+            <Svg height="100" width="100" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke={colorProjRemain} strokeWidth="8" fill="none"
+                strokeDasharray={`${progressProjRemain * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+            </Svg>
+            <View style={styles.centerTextSmall}>
+              <Text style={styles.hoursTextSmall}>{projectedRemainingHours.toFixed(1)}</Text>
+            </View>
+            <Text style={[styles.chartLabel, { color: colorProjRemain }]} numberOfLines={1}>Proj. Rem</Text>
+          </View>
         </View>
         
         <View style={styles.calendarContainer}>
@@ -324,9 +342,10 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
   dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
-  centerTextSmall: { position: 'absolute', top: 44, alignItems: 'center' },
-  hoursTextSmall: { fontSize: 30, fontWeight: 'bold', color: '#F8FAFC' },
-  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 18 },
+  dashboardCardThird: { alignItems: 'center', position: 'relative', width: '32%' },
+  centerTextSmall: { position: 'absolute', top: 34, alignItems: 'center', width: '100%' },
+  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
+  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 14, textAlign: 'center' },
   calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
   weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
   weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },

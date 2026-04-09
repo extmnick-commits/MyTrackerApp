@@ -826,6 +826,12 @@ export default function WorkTracker() {
   const progressMiles = Math.min((monthlyMiles / monthlyMilesLimit) * 100, 100);
   const colorMiles = monthlyMiles > monthlyMilesLimit ? "#EF4444" : "#0a7ea4";
 
+  // Projected Remaining calculations
+  const totalProjectedConsumed = hoursWorked + projectedHours;
+  const projectedRemainingHours = monthlyLimit - totalProjectedConsumed;
+  const progressProjRemain = Math.min((totalProjectedConsumed / monthlyLimit) * 100, 100);
+  const colorProjRemain = projectedRemainingHours < 0 ? "#EF4444" : "#10B981";
+
   const markedDates: any = {};
   Object.keys(workLogs).forEach(date => {
     if (!date.startsWith(viewedMonthYear)) return; // Filter out legacy fields/other months
@@ -872,8 +878,8 @@ export default function WorkTracker() {
         </View>
 
         <View style={styles.dashboardRow}>
-          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
-            <Svg height="100" width="100" viewBox="0 0 100 100">
+          <TouchableOpacity style={styles.dashboardCardQuarter} onPress={() => { setNewLimitInput(monthlyLimit.toString()); setLimitModalType('hours'); }}>
+            <Svg height="80" width="80" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="40" stroke={colorHours} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressHours * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
@@ -881,11 +887,11 @@ export default function WorkTracker() {
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{(monthlyLimit - hoursWorked).toFixed(1)}</Text>
             </View>
-            <Text style={styles.chartLabel}>Remaining Hrs</Text>
+            <Text style={styles.chartLabel} numberOfLines={1}>Remain</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
-            <Svg height="100" width="100" viewBox="0 0 100 100">
+          <TouchableOpacity style={styles.dashboardCardQuarter} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
+            <Svg height="80" width="80" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="40" stroke="#F59E0B" strokeWidth="8" fill="none"
                 strokeDasharray={`${progressProjected * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
@@ -893,11 +899,23 @@ export default function WorkTracker() {
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
             </View>
-            <Text style={[styles.chartLabel, { color: '#F59E0B' }]}>Projected</Text>
+            <Text style={[styles.chartLabel, { color: '#F59E0B' }]} numberOfLines={1}>Projected</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dashboardCardThird} onPress={() => { setNewLimitInput(monthlyMilesLimit.toString()); setLimitModalType('miles'); }}>
-            <Svg height="100" width="100" viewBox="0 0 100 100">
+          <View style={styles.dashboardCardQuarter}>
+            <Svg height="80" width="80" viewBox="0 0 100 100">
+              <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="40" stroke={colorProjRemain} strokeWidth="8" fill="none"
+                strokeDasharray={`${progressProjRemain * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
+            </Svg>
+            <View style={styles.centerTextSmall}>
+              <Text style={styles.hoursTextSmall}>{projectedRemainingHours.toFixed(1)}</Text>
+            </View>
+            <Text style={[styles.chartLabel, { color: colorProjRemain }]} numberOfLines={1}>Proj. Rem</Text>
+          </View>
+
+          <TouchableOpacity style={styles.dashboardCardQuarter} onPress={() => { setNewLimitInput(monthlyMilesLimit.toString()); setLimitModalType('miles'); }}>
+            <Svg height="80" width="80" viewBox="0 0 100 100">
               <Circle cx="50" cy="50" r="40" stroke="#1E293B" strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="40" stroke={colorMiles} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressMiles * 2.51} 251`} strokeLinecap="round" transform="rotate(-90 50 50)" />
@@ -905,7 +923,7 @@ export default function WorkTracker() {
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{monthlyMiles.toFixed(1)}</Text>
             </View>
-            <Text style={[styles.chartLabel, { color: '#0a7ea4' }]}>Miles</Text>
+            <Text style={[styles.chartLabel, { color: '#0a7ea4' }]} numberOfLines={1}>Miles</Text>
           </TouchableOpacity>
         </View>
         
@@ -1292,10 +1310,11 @@ const styles = StyleSheet.create({
   dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
   dashboardCardThird: { alignItems: 'center', position: 'relative', width: '32%' },
-  centerTextSmall: { position: 'absolute', top: 34, alignItems: 'center' },
-  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
+  dashboardCardQuarter: { alignItems: 'center', position: 'relative', width: '24%' },
+  centerTextSmall: { position: 'absolute', top: 28, alignItems: 'center', width: '100%' },
+  hoursTextSmall: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
   limitTextSmall: { fontSize: 12, color: '#94A3B8' },
-  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 8, fontSize: 14 },
+  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 8, fontSize: 11, textAlign: 'center' },
   calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
   weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
   weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
