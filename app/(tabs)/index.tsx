@@ -1513,7 +1513,7 @@ const styles = StyleSheet.create({
   premiumActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#334155' },
   actionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a7ea420', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
   actionPillText: { color: '#38bdf8', fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
-  iconButton: { padding: 8, backgroundColor: '#ef444420', borderRadius: 8 }
+  iconButton: { padding: 8, backgroundColor: '#ef444420', borderRadius: 8 },
 
   // Event Modal Styles
   addEventContainer: {
