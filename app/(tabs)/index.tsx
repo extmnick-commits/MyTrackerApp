@@ -4,8 +4,8 @@ import * as Print from 'expo-print';
 import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
-import { collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
-import { CheckCircle2, ChevronRight, Edit2, FileText, LogOut, MapPin, Printer, Settings, Trash2, X } from 'lucide-react-native';
+import { arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { CalendarDays, CheckCircle2, ChevronRight, Edit2, FileText, LogOut, MapPin, Printer, Settings, Trash2, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -65,6 +65,12 @@ export default function WorkTracker() {
   const [isFamilyPinModalVisible, setFamilyPinModalVisible] = useState(false);
   const [familyMembersList, setFamilyMembersList] = useState<{id: string, name: string, lastLogin?: string}[]>([]);
   const [highlightProjected, setHighlightProjected] = useState(false);
+
+  // Events State
+  const [isEventModalVisible, setEventModalVisible] = useState(false);
+  const [events, setEvents] = useState<Record<string, any[]>>({});
+  const [eventInput, setEventInput] = useState('');
+
 
   // App Settings State
   const [companyName, setCompanyName] = useState('');
@@ -171,6 +177,21 @@ export default function WorkTracker() {
     });
     return () => unsubscribe();
   }, [user]);
+
+  // Sync monthly events
+  useEffect(() => {
+    if (!user) return;
+
+    const docRef = doc(db, 'users', user.uid, 'events', viewedMonthYear);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+            setEvents(docSnap.data());
+        } else {
+            setEvents({});
+        }
+    });
+    return () => unsubscribe();
+  }, [viewedMonthYear, user]);
 
   useEffect(() => {
     const tripsThisMonth = mileageHistory.filter(t => t.date.startsWith(viewedMonthYear));
@@ -411,6 +432,52 @@ export default function WorkTracker() {
     } catch (error) {
       Alert.alert('Error', 'Failed to update company name.');
     }
+  };
+
+  const handleSaveEvent = async () => {
+    if (!user || !eventInput.trim() || !selectedDate) return;
+    try {
+        const docRef = doc(db, 'users', user.uid, 'events', viewedMonthYear);
+        const newEvent = {
+            id: Date.now().toString(),
+            title: eventInput.trim(),
+        };
+
+        // Try to update first, assuming the document and possibly the date field exist.
+        await updateDoc(docRef, {
+            [selectedDate]: arrayUnion(newEvent)
+        });
+
+        setEventInput('');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error: any) {
+        // If update fails (e.g., doc doesn't exist), fall back to setDoc.
+        if (error.code === 'not-found') {
+            const docRef = doc(db, 'users', user.uid, 'events', viewedMonthYear);
+            const newEvent = {
+                id: Date.now().toString(),
+                title: eventInput.trim(),
+            };
+            await setDoc(docRef, { [selectedDate]: [newEvent] }, { merge: true });
+            setEventInput('');
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } else {
+            Alert.alert("Error Saving Event", error.message);
+        }
+    }
+  };
+
+  const handleDeleteEvent = async (eventToDelete: any) => {
+      if (!user || !selectedDate) return;
+      try {
+          const docRef = doc(db, 'users', user.uid, 'events', viewedMonthYear);
+          await updateDoc(docRef, {
+              [selectedDate]: arrayRemove(eventToDelete)
+          });
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (error: any) {
+          Alert.alert("Error Deleting Event", error.message);
+      }
   };
 
   // Helper for Premium UI Timeline and PDF
@@ -833,11 +900,27 @@ export default function WorkTracker() {
   const colorProjRemain = projectedRemainingHours < 0 ? "#EF4444" : "#10B981";
 
   const markedDates: any = {};
-  Object.keys(workLogs).forEach(date => {
-    if (!date.startsWith(viewedMonthYear)) return; // Filter out legacy fields/other months
-    const isProj = workLogs[date]?.isProjected;
-    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', isProj };
+  const allDatesWithActivity = new Set([
+    ...Object.keys(workLogs).filter(date => date.startsWith(viewedMonthYear)),
+    ...Object.keys(events).filter(date => date.startsWith(viewedMonthYear) && events[date]?.length > 0)
+  ]);
+
+  allDatesWithActivity.forEach(date => {
+    const workLog = workLogs[date];
+    const hasWorkLog = !!workLog;
+    const isProj = workLog?.isProjected;
+    const hasEvent = events[date]?.length > 0;
+
+    markedDates[date] = {
+        marked: true, // A generic flag to show we need to render dots
+        hasWorkLog,
+        hasEvent,
+        isProj,
+        workDotColor: isProj ? '#F59E0B' : '#3B82F6',
+        eventDotColor: '#A78BFA', // A nice violet color for events
+    };
   });
+
   if (selectedDate) {
     const isProj = workLogs[selectedDate]?.isProjected;
     markedDates[selectedDate] = { ...markedDates[selectedDate], selected: true, selectedColor: isProj ? '#F59E0B' : '#3B82F6' };
@@ -976,9 +1059,10 @@ export default function WorkTracker() {
                    <TouchableOpacity onPress={() => handleDayPress(date)} style={{ position: 'absolute', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-start', paddingTop: 5 }}>
                      <Text style={{color: textColor}}>{date.day}</Text>
                    </TouchableOpacity>
-                   <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
-                     {isMarked && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6'}} />}
-                   </View>
+                    <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
+                      {marking?.hasWorkLog && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.workDotColor, marginHorizontal: 1}} />}
+                      {marking?.hasEvent && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.eventDotColor, marginHorizontal: 1}} />}
+                    </View>
                 </View>
               );
             }}
@@ -1227,6 +1311,45 @@ export default function WorkTracker() {
         </View>
       </Modal>
 
+      <Modal visible={isEventModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { borderRadius: 20, margin: 20 }]}>
+                <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Events for {selectedDate}</Text>
+                    <TouchableOpacity onPress={() => setEventModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+                </View>
+
+                <ScrollView style={{ maxHeight: 200, marginBottom: 15 }}>
+                    {(events[selectedDate] || []).length > 0 ? (
+                        events[selectedDate].map((event: any) => (
+                            <View key={event.id} style={styles.eventRow}>
+                                <Text style={styles.eventText}>{event.title}</Text>
+                                <TouchableOpacity onPress={() => handleDeleteEvent(event)}>
+                                    <Trash2 size={18} color="#EF4444" />
+                                </TouchableOpacity>
+                            </View>
+                        ))
+                    ) : (
+                        <Text style={styles.emptyHistory}>No events for this day.</Text>
+                    )}
+                </ScrollView>
+
+                <View style={styles.addEventContainer}>
+                    <TextInput
+                        style={[styles.loginInput, { flex: 1, marginBottom: 0, marginRight: 10 }]}
+                        placeholder="Add new event..."
+                        placeholderTextColor="#94A3B8"
+                        value={eventInput}
+                        onChangeText={setEventInput}
+                    />
+                    <TouchableOpacity style={[styles.saveButton, { paddingHorizontal: 20, borderRadius: 12 }]} onPress={handleSaveEvent}>
+                        <Text style={styles.saveButtonText}>Add</Text>
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+      </Modal>
+
       <Modal visible={isModalVisible} transparent animationType="slide">
         <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           {/* This TouchableWithoutFeedback allows tapping the background to close the modal, without interfering with inputs */}
@@ -1272,6 +1395,19 @@ export default function WorkTracker() {
               <MapPin color="#0a7ea4" size={20} />
               <Text style={[styles.durationText, { color: '#0a7ea4' }]}>{dayMiles.toFixed(1)} mi</Text>
             </View>
+
+            <TouchableOpacity 
+              style={[styles.timeRow, { justifyContent: 'center', backgroundColor: '#1E293B', paddingVertical: 15 }]} 
+              onPress={() => {
+                  setModalVisible(false);
+                  setEventModalVisible(true);
+              }}
+            >
+              <CalendarDays color={"#A78BFA"} size={20} style={{ marginRight: 10 }} />
+              <Text style={[styles.timeLabel, { color: "#A78BFA", fontSize: 15 }]}>
+                  View / Add Day Events
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.saveButton} onPress={saveHours}><Text style={styles.saveButtonText}>Save Shift</Text></TouchableOpacity>
           </View>
@@ -1378,4 +1514,26 @@ const styles = StyleSheet.create({
   actionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0a7ea420', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
   actionPillText: { color: '#38bdf8', fontSize: 14, fontWeight: 'bold', marginLeft: 8 },
   iconButton: { padding: 8, backgroundColor: '#ef444420', borderRadius: 8 }
+
+  // Event Modal Styles
+  addEventContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  eventRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: '#0F172A',
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 8,
+  },
+  eventText: {
+      color: '#F8FAFC',
+      fontSize: 16,
+      flex: 1,
+      marginRight: 10,
+  },
 });
