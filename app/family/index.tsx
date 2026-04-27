@@ -354,7 +354,7 @@ export default function FamilyDashboard() {
                 <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Personal Events</Text>
                 {events[selectedDate!].map((ev: any) => (
                   <View key={ev.id} style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#EF4444' }}>
-                    <Text style={{ color: '#F8FAFC', fontSize: 15 }}>{ev.title}</Text>
+                    <Text style={{ color: '#F8FAFC', fontSize: 15, fontStyle: 'italic' }}>Personal Event (Private)</Text>
                   </View>
                 ))}
               </View>
