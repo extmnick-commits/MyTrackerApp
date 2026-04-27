@@ -1061,7 +1061,7 @@ export default function WorkTracker() {
                    </TouchableOpacity>
                     <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
                       {marking?.hasWorkLog && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.workDotColor, marginHorizontal: 1}} />}
-                      {marking?.hasEvent && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.eventDotColor, marginHorizontal: 1}} />}
+                      {marking?.hasEvent && <X size={10} color="#EF4444" strokeWidth={3} style={{ marginHorizontal: 1 }} />}
                     </View>
                 </View>
               );

@@ -38,6 +38,8 @@ export default function FamilyDashboard() {
   // Weekly Breakdown Details State
   const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
   const [weekLogs, setWeekLogs] = useState<{ date: string; in: string; out: string; hrs: number }[]>([]);
+  const [events, setEvents] = useState<Record<string, any[]>>({});
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const now = new Date();
   const currentMonthYear = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -82,6 +84,20 @@ export default function FamilyDashboard() {
     });
     return () => unsubscribe();
   }, [viewedMonthYear, caregiverId, defaultMonthlyLimit]);
+
+  useEffect(() => {
+    if (!caregiverId) return;
+
+    const docRef = doc(db, 'users', caregiverId, 'events', viewedMonthYear);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+            setEvents(docSnap.data());
+        } else {
+            setEvents({});
+        }
+    });
+    return () => unsubscribe();
+  }, [viewedMonthYear, caregiverId]);
 
   useEffect(() => {
     const allDates = Object.keys(workLogs).filter(dateStr => dateStr.startsWith(viewedMonthYear));
@@ -172,10 +188,18 @@ export default function FamilyDashboard() {
   const colorProjRemain = projectedRemainingHours < 0 ? "#EF4444" : "#10B981";
 
   const markedDates: any = {};
-  Object.keys(workLogs).forEach(date => {
-    if (!date.startsWith(viewedMonthYear)) return; // Filter out legacy fields/other months
-    const isProj = workLogs[date]?.isProjected;
-    markedDates[date] = { marked: true, dotColor: isProj ? '#F59E0B' : '#3B82F6', isProj };
+  const allDatesWithActivity = new Set([
+    ...Object.keys(workLogs).filter(date => date.startsWith(viewedMonthYear)),
+    ...Object.keys(events).filter(date => date.startsWith(viewedMonthYear) && events[date]?.length > 0)
+  ]);
+
+  allDatesWithActivity.forEach(date => {
+    const workLog = workLogs[date];
+    const hasWorkLog = !!workLog;
+    const isProj = workLog?.isProjected;
+    const hasEvent = events[date]?.length > 0;
+
+    markedDates[date] = { marked: true, hasWorkLog, hasEvent, isProj, dotColor: isProj ? '#F59E0B' : '#3B82F6' };
   });
 
   if (!user || !caregiverId) {
@@ -248,14 +272,21 @@ export default function FamilyDashboard() {
             dayComponent={({date, state}: any) => {
               const marking = markedDates[date.dateString];
               const isMarked = marking?.marked;
+              const hasWorkLog = marking?.hasWorkLog;
+              const hasEvent = marking?.hasEvent;
               const shouldHighlight = highlightProjected && marking?.isProj;
+              const isSelected = selectedDate === date.dateString;
               return (
-                <View style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: '#F59E0B'}}>
-                   <Text style={{color: state === 'disabled' ? '#475569' : '#F8FAFC'}}>{date.day}</Text>
+                <TouchableOpacity 
+                  onPress={() => setSelectedDate(date.dateString)} 
+                  style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: '#F59E0B', backgroundColor: isSelected ? '#3B82F6' : 'transparent'}}
+                >
+                   <Text style={{color: isSelected ? '#FFF' : (state === 'disabled' ? '#475569' : '#F8FAFC')}}>{date.day}</Text>
                    <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
-                     {isMarked && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6'}} />}
+                     {hasWorkLog && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6', marginHorizontal: 1}} />}
+                     {hasEvent && <X size={10} color="#EF4444" strokeWidth={3} style={{ marginHorizontal: 1 }} />}
                    </View>
-                </View>
+                </TouchableOpacity>
               );
             }}
           />
@@ -293,6 +324,44 @@ export default function FamilyDashboard() {
           </View>
         )}
       </ScrollView>
+
+      {/* Day Details Modal */}
+      <Modal visible={selectedDate !== null} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderRadius: 20, margin: 20 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Details for {selectedDate}</Text>
+              <TouchableOpacity onPress={() => setSelectedDate(null)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            
+            {/* Show Work Logs */}
+            {workLogs[selectedDate || ''] ? (
+              <View style={{ marginBottom: 20 }}>
+                <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Hours Logged</Text>
+                <View style={{ backgroundColor: '#0F172A', padding: 15, borderRadius: 12 }}>
+                  <Text style={{ color: '#94A3B8', fontSize: 16, marginBottom: 5 }}>In: <Text style={{ color: '#F8FAFC', fontWeight: 'bold' }}>{workLogs[selectedDate!].in}</Text></Text>
+                  <Text style={{ color: '#94A3B8', fontSize: 16, marginBottom: 5 }}>Out: <Text style={{ color: '#F8FAFC', fontWeight: 'bold' }}>{workLogs[selectedDate!].out}</Text></Text>
+                  <Text style={{ color: '#94A3B8', fontSize: 16 }}>Total: <Text style={{ color: '#3B82F6', fontWeight: 'bold' }}>{workLogs[selectedDate!].totalHours} hrs</Text></Text>
+                </View>
+              </View>
+            ) : (
+              <Text style={{ color: '#94A3B8', marginBottom: 20, fontStyle: 'italic' }}>No work hours logged for this day.</Text>
+            )}
+
+            {/* Show Events */}
+            {events[selectedDate || ''] && events[selectedDate!].length > 0 && (
+              <View>
+                <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Personal Events</Text>
+                {events[selectedDate!].map((ev: any) => (
+                  <View key={ev.id} style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#EF4444' }}>
+                    <Text style={{ color: '#F8FAFC', fontSize: 15 }}>{ev.title}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Premium Weekly Breakdown Modal */}
       <Modal visible={selectedWeek !== null} animationType="slide" presentationStyle="pageSheet">
@@ -352,6 +421,12 @@ const styles = StyleSheet.create({
   weekRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1E293B', padding: 16, borderRadius: 12, marginBottom: 8 },
   weekLabel: { color: '#94A3B8', fontSize: 16, fontWeight: '600' },
   weekHours: { color: '#3B82F6', fontSize: 17, fontWeight: 'bold' },
+
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center' },
+  modalContent: { backgroundColor: '#1E293B', padding: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
   
   // Premium Weekly Breakdown Modal Styles
   premiumModalContainer: { flex: 1, backgroundColor: '#0F172A' },
