@@ -4,7 +4,7 @@ import * as Print from 'expo-print';
 import { useNavigation } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { signOut } from 'firebase/auth';
-import { arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
+import { addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { CalendarDays, CheckCircle2, ChevronRight, Edit2, FileText, LogOut, MapPin, Printer, Settings, Trash2, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
@@ -76,6 +76,15 @@ export default function WorkTracker() {
   const [companyName, setCompanyName] = useState('');
   const [isCompanyModalVisible, setCompanyModalVisible] = useState(false);
   const [companyNameInput, setCompanyNameInput] = useState('');
+  
+  // Commute Settings State
+  const [commuteOrigin, setCommuteOrigin] = useState('1229 W Roseburg Ave, Modesto, CA 95350');
+  const [commuteDestination, setCommuteDestination] = useState('636 Lodge Creek Ln, Patterson, CA 95363');
+  const [commuteMiles, setCommuteMiles] = useState(44.0);
+  const [isCommuteModalVisible, setCommuteModalVisible] = useState(false);
+  const [commuteOriginInput, setCommuteOriginInput] = useState('');
+  const [commuteDestinationInput, setCommuteDestinationInput] = useState('');
+  const [commuteMilesInput, setCommuteMilesInput] = useState('');
 
   const [selectedDate, setSelectedDate] = useState('');
   const [dayMiles, setDayMiles] = useState(0); 
@@ -94,6 +103,7 @@ export default function WorkTracker() {
   const [outAmPm, setOutAmPm] = useState('PM');
   const [calculatedShift, setCalculatedShift] = useState(0);
   const [isProjectedShift, setIsProjectedShift] = useState(false);
+  const [includeCommute, setIncludeCommute] = useState(false);
   
   const now = new Date();
   const currentDateString = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}`;
@@ -117,6 +127,9 @@ export default function WorkTracker() {
         setDefaultMonthlyMilesLimit(data.monthlyMilesLimit || 500);
         setFamilyPin(data.familyPin || '');
         setCompanyName(data.companyName || '');
+        if (data.commuteOrigin !== undefined) setCommuteOrigin(data.commuteOrigin);
+        if (data.commuteDestination !== undefined) setCommuteDestination(data.commuteDestination);
+        if (data.commuteMiles !== undefined) setCommuteMiles(data.commuteMiles);
       }
     });
     return () => unsubscribe();
@@ -431,6 +444,26 @@ export default function WorkTracker() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       Alert.alert('Error', 'Failed to update company name.');
+    }
+  };
+
+  const saveCommuteSettings = async () => {
+    if (!user) return;
+    const miles = parseFloat(commuteMilesInput);
+    if (isNaN(miles) || miles < 0) {
+      Alert.alert('Invalid Miles', 'Please enter a valid positive number for commute miles.');
+      return;
+    }
+    try {
+      await setDoc(doc(db, 'users', user.uid), { 
+        commuteOrigin: commuteOriginInput,
+        commuteDestination: commuteDestinationInput,
+        commuteMiles: miles
+      }, { merge: true });
+      setCommuteModalVisible(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to update standard commute settings.');
     }
   };
 
@@ -803,6 +836,7 @@ export default function WorkTracker() {
       setOutHour('05'); setOutMin('00'); setOutAmPm('PM');
       setIsProjectedShift(false);
     }
+    setIncludeCommute(true);
     setModalVisible(true);
   };
 
@@ -817,6 +851,30 @@ export default function WorkTracker() {
       await setDoc(docRef, {
         [selectedDate]: { totalHours: calculatedShift, in: inTime, out: outTime, miles: dayMiles, isProjected: isProjectedShift }
       }, { merge: true });
+
+      if (includeCommute) {
+        const existingCommute = mileageHistory.find(t => 
+          t.date === selectedDate && 
+          (t.miles === commuteMiles || 
+           (t.stops && t.stops.length === 2 && 
+            t.stops[0].address === commuteOrigin && 
+            t.stops[1].address === commuteDestination))
+        );
+        
+        if (!existingCommute) {
+          const commuteTrip = {
+            date: selectedDate,
+            miles: commuteMiles,
+            stopsCount: 2,
+            stops: [
+              { id: 'origin', address: commuteOrigin },
+              { id: 'dest_1', address: commuteDestination }
+            ]
+          };
+          await addDoc(collection(db, 'users', user.uid, 'mileage'), commuteTrip);
+        }
+      }
+
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error: any) {
       Alert.alert("Firestore Error", error.message);
@@ -1122,6 +1180,15 @@ export default function WorkTracker() {
             <TouchableOpacity onPress={() => setSelectedWeek(null)} style={styles.closeModalHeaderBtn}>
               <X size={24} color="#F8FAFC" />
             </TouchableOpacity>
+            <TouchableOpacity style={[styles.saveButton, { backgroundColor: '#3B82F6', marginBottom: 15, flexDirection: 'row', justifyContent: 'center' }]} onPress={() => { 
+              setCommuteOriginInput(commuteOrigin); 
+              setCommuteDestinationInput(commuteDestination); 
+              setCommuteMilesInput(commuteMiles.toString()); 
+              setSettingsVisible(false); 
+              setCommuteModalVisible(true); 
+            }}>
+              <Text style={styles.saveButtonText}>Configure Standard Commute</Text>
+            </TouchableOpacity>
           </View>
           
           <ScrollView contentContainerStyle={{ padding: 20 }}>
@@ -1264,6 +1331,45 @@ export default function WorkTracker() {
           </View>
         </View>
       </Modal>
+      
+      <Modal visible={isCommuteModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Standard Commute</Text>
+              <TouchableOpacity onPress={() => setCommuteModalVisible(false)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+            </View>
+            <Text style={{ color: '#94A3B8', marginBottom: 15 }}>Set the default addresses and roundtrip miles for your standard commute.</Text>
+            <TextInput 
+              style={styles.loginInput} 
+              value={commuteOriginInput} 
+              onChangeText={setCommuteOriginInput} 
+              placeholder="Origin Address..." 
+              placeholderTextColor="#94A3B8"
+            />
+            <TextInput 
+              style={styles.loginInput} 
+              value={commuteDestinationInput} 
+              onChangeText={setCommuteDestinationInput} 
+              placeholder="Destination Address..." 
+              placeholderTextColor="#94A3B8"
+            />
+            <TextInput 
+              style={[styles.loginInput, { marginBottom: 5 }]} 
+              value={commuteMilesInput} 
+              onChangeText={setCommuteMilesInput} 
+              placeholder="Total Roundtrip Miles..." 
+              placeholderTextColor="#94A3B8" 
+              keyboardType="numeric" 
+              inputMode="numeric"
+            />
+            <TouchableOpacity style={[styles.saveButton, { marginTop: 15 }]} onPress={saveCommuteSettings}>
+              <Text style={styles.saveButtonText}>Save Commute</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={isFamilyPinModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { borderRadius: 20, margin: 20, paddingBottom: 30 }]}>
@@ -1377,6 +1483,16 @@ export default function WorkTracker() {
                 </View>
               </View>
             ))}
+
+            <TouchableOpacity 
+              style={[styles.timeRow, { justifyContent: 'center', backgroundColor: includeCommute ? '#0ea5e920' : '#1E293B', borderColor: includeCommute ? '#0ea5e9' : 'transparent', borderWidth: 1 }]} 
+              onPress={() => setIncludeCommute(!includeCommute)}
+            >
+              <CheckCircle2 color={includeCommute ? "#0ea5e9" : "#475569"} size={20} style={{ marginRight: 10 }} />
+              <Text style={[styles.timeLabel, { color: includeCommute ? '#0ea5e9' : '#94A3B8', fontSize: 15 }]}>
+                Include Commute ({commuteMiles} mi)
+              </Text>
+            </TouchableOpacity>
 
             <TouchableOpacity 
               style={[styles.timeRow, { justifyContent: 'center', backgroundColor: isProjectedShift ? '#F59E0B20' : '#1E293B', borderColor: isProjectedShift ? '#F59E0B' : 'transparent', borderWidth: 1 }]} 
