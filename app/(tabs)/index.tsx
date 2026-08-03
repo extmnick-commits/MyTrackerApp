@@ -78,9 +78,9 @@ export default function WorkTracker() {
   const [companyNameInput, setCompanyNameInput] = useState('');
   
   // Commute Settings State
-  const [commuteOrigin, setCommuteOrigin] = useState('1229 W Roseburg Ave, Modesto, CA 95350');
+  const [commuteOrigin, setCommuteOrigin] = useState('1334 Grape Ave, Modesto, CA 95350');
   const [commuteDestination, setCommuteDestination] = useState('636 Lodge Creek Ln, Patterson, CA 95363');
-  const [commuteMiles, setCommuteMiles] = useState(44.0);
+  const [commuteMiles, setCommuteMiles] = useState(46.4);
   const [isCommuteModalVisible, setCommuteModalVisible] = useState(false);
   const [commuteOriginInput, setCommuteOriginInput] = useState('');
   const [commuteDestinationInput, setCommuteDestinationInput] = useState('');
