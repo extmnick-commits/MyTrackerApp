@@ -536,6 +536,14 @@ export default function WorkTracker() {
     }
   };
 
+  // Helper to get IRS mileage rate based on date
+  const getIRSRate = (dateStr: string) => {
+    // IRS 2026 Rates: $0.725 before July 1, $0.76 from July 1 onward
+    const date = new Date(dateStr + 'T12:00:00');
+    const cutoff = new Date('2026-07-01T00:00:00');
+    return date < cutoff ? 0.725 : 0.76;
+  };
+
   // --- UPGRADED PREMIUM PDF GENERATOR ---
   const generatePDF = async (action: 'share' | 'email' = 'share') => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -601,7 +609,9 @@ export default function WorkTracker() {
       `;
     }).join('');
 
-    const estDeduction = (monthlyMiles * 0.67).toFixed(2);
+    // For the monthly estimate in PDF, we'll use the rate for the first of the viewed month
+    const monthlyRate = getIRSRate(`${viewedMonthYear}-01`);
+    const estDeduction = (monthlyMiles * monthlyRate).toFixed(2);
     const totalDaysWorked = sortedDates.length;
 
     const htmlContent = `
@@ -687,7 +697,7 @@ export default function WorkTracker() {
           <div class="summary-box highlight">
             <div class="summary-label">Est. IRS Tax Deduction</div>
             <p class="summary-value">$${estDeduction}</p>
-            <div class="summary-subtext">@ $0.67 per mile</div>
+            <div class="summary-subtext">@ $${monthlyRate.toFixed(3)} per mile</div>
           </div>
         </div>
 
@@ -732,7 +742,7 @@ export default function WorkTracker() {
         
         <div class="footer">
           <p style="margin: 0 0 5px 0;">Generated securely by ${companyName || 'MyTrackerApp'}</p>
-          <p style="margin: 0;">* Mileage deduction is estimated using the 2024 IRS standard mileage rate of 67 cents per mile.</p>
+          <p style="margin: 0;">* Mileage deduction is estimated using the 2026 IRS standard mileage rate ($0.725/mi Jan-Jun, $0.76/mi Jul-Dec).</p>
         </div>
         </body>
       </html>
@@ -1194,8 +1204,8 @@ export default function WorkTracker() {
           <ScrollView contentContainerStyle={{ padding: 20 }}>
             {/* IRS Est Deduction Premium Feature */}
             <View style={styles.deductionCard}>
-               <Text style={styles.deductionLabel}>Est. IRS Tax Deduction ($0.67/mi)</Text>
-               <Text style={styles.deductionValue}>${(weekTrips.reduce((sum, t) => sum + t.miles, 0) * 0.67).toFixed(2)}</Text>
+               <Text style={styles.deductionLabel}>Est. IRS Tax Deduction (${getIRSRate(viewedMonthYear + '-01').toFixed(3)}/mi)</Text>
+               <Text style={styles.deductionValue}>${(weekTrips.reduce((sum, t) => sum + t.miles, 0) * getIRSRate(viewedMonthYear + '-01')).toFixed(2)}</Text>
             </View>
 
             {weekTrips.length === 0 ? (
