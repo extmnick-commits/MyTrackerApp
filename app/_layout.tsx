@@ -4,6 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { SeasonalThemeProvider } from '../context/SeasonalThemeContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -88,7 +89,9 @@ function InitialLayout() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <InitialLayout />
+      <SeasonalThemeProvider>
+        <InitialLayout />
+      </SeasonalThemeProvider>
     </AuthProvider>
   );
 }

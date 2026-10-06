@@ -16,16 +16,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
+    backgroundColor: '#3D1418',
   },
   title: {
     fontSize: 24,
-    color: '#F8FAFC',
+    color: '#FFF5F5',
     marginBottom: 20,
   },
   text: {
     fontSize: 18,
-    color: '#94A3B8',
+    color: '#D4B8BC',
     marginBottom: 10,
   },
 });

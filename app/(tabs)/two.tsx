@@ -17,7 +17,10 @@ import {
 import { Calendar } from 'react-native-calendars';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
 import usePlatform from '../../components/usePlatform';
+import { SeasonalDecor } from '../../components/SeasonalDecor';
+import { SeasonalTheme } from '../../constants/Theme';
 import { useAuth } from '../../context/AuthContext';
+import { useViewedSeason } from '../../context/SeasonalThemeContext';
 import { db } from '../../firebaseConfig';
 
 
@@ -37,6 +40,8 @@ export default function TabTwoScreen() {
   // New State for Monthly History
   const [historyByMonth, setHistoryByMonth] = useState<Record<string, Trip[]>>({});
   const [viewedMonth, setViewedMonth] = useState(new Date().toISOString().slice(0, 7)); // e.g. "2026-03"
+  const theme = useViewedSeason(viewedMonth);
+  const styles = useMemo(() => createMileageStyles(theme), [theme]);
 
   const [activeSearchId, setActiveSearchId] = useState<string | null>(null);
   const [isDatePickerVisible, setDatePickerVisible] = useState(false);
@@ -354,14 +359,17 @@ export default function TabTwoScreen() {
   const renderHeader = () => (
     <View style={styles.content}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{activeEditTripId ? 'Edit Route' : 'New Route'}</Text>
+        <View>
+          <Text style={styles.headerTitle}>{activeEditTripId ? 'Edit Route' : 'New Route'}</Text>
+          <SeasonalDecor theme={theme} />
+        </View>
         {activeEditTripId && <View style={styles.editBadge}><Text style={styles.editBadgeText}>Editing Mode</Text></View>}
       </View>
       
       <View style={styles.dateCard}>
         <Text style={styles.dateLabel}>Trip Date:</Text>
         <TouchableOpacity style={styles.dateButton} onPress={() => setDatePickerVisible(true)}>
-          <CalendarIcon size={20} color="#0a7ea4" />
+          <CalendarIcon size={20} color={theme.accent} />
           <Text style={styles.dateButtonText}>{selectedDate}</Text>
         </TouchableOpacity>
       </View>
@@ -396,7 +404,7 @@ export default function TabTwoScreen() {
           </View>
         ))}
         <TouchableOpacity style={styles.addButton} onPress={addStop}>
-          <Plus size={20} color={activeEditTripId ? "#d97706" : "#0a7ea4"} />
+          <Plus size={20} color={activeEditTripId ? "#d97706" : theme.accent} />
           <Text style={[styles.addButtonText, activeEditTripId && { color: "#d97706" }]}>Add Stop</Text>
         </TouchableOpacity>
       </View>
@@ -422,9 +430,9 @@ export default function TabTwoScreen() {
         </View>
 
         <View style={styles.monthNavigator}>
-          <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.monthNavButton}><ChevronLeft size={24} color="#0a7ea4" /></TouchableOpacity>
+          <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.monthNavButton}><ChevronLeft size={24} color={theme.accent} /></TouchableOpacity>
           <Text style={styles.monthDisplayText}>{displayMonth}</Text>
-          <TouchableOpacity onPress={() => changeMonth(1)} style={styles.monthNavButton}><ChevronRight size={24} color="#0a7ea4" /></TouchableOpacity>
+          <TouchableOpacity onPress={() => changeMonth(1)} style={styles.monthNavButton}><ChevronRight size={24} color={theme.accent} /></TouchableOpacity>
         </View>
         
         {tripsForViewedMonth.length > 0 ? (
@@ -471,7 +479,7 @@ export default function TabTwoScreen() {
               ) : <Text style={styles.legacyText}>{trip.stopsCount} stops (Legacy Data - cannot edit route)</Text>}
               <View style={styles.premiumActions}>
                 <TouchableOpacity style={[styles.actionPill, !hasStops && { opacity: 0.5 }]} onPress={() => loadTripForEditing(trip)} disabled={!hasStops}>
-                  <Map size={14} color="#0a7ea4" /><Text style={styles.actionPillText}>Edit Route</Text>
+                  <Map size={14} color={theme.accent} /><Text style={styles.actionPillText}>Edit Route</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.iconButton} onPress={() => deleteTrip(trip.id)}><Trash2 size={18} color="#ef4444" /></TouchableOpacity>
               </View>
@@ -542,10 +550,10 @@ export default function TabTwoScreen() {
               styles={{
                 container: { flex: 1, zIndex: 10 },
                 textInputContainer: { paddingHorizontal: 15, paddingBottom: 10 },
-                textInput: { backgroundColor: '#f3f4f6', height: 45, borderRadius: 8, paddingHorizontal: 15, fontSize: 16 },
+                textInput: { backgroundColor: '#FDECEC', height: 45, borderRadius: 8, paddingHorizontal: 15, fontSize: 16 },
                 listView: { flex: 1, zIndex: 1000, elevation: 1000 },
                 row: { padding: 15 },
-                separator: { height: 1, backgroundColor: '#e5e7eb' },
+                separator: { height: 1, backgroundColor: '#FECACA' },
                 description: { fontSize: 15, color: '#1f2937' },
               }}
             />
@@ -556,7 +564,7 @@ export default function TabTwoScreen() {
       <Modal visible={isDatePickerVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Calendar onDayPress={(day: any) => { setSelectedDate(day.dateString); setDatePickerVisible(false); }} markedDates={{ [selectedDate]: { selected: true, selectedColor: '#0a7ea4' } }} theme={{ todayTextColor: '#0a7ea4', arrowColor: '#0a7ea4' }}/>
+            <Calendar onDayPress={(day: any) => { setSelectedDate(day.dateString); setDatePickerVisible(false); }} markedDates={{ [selectedDate]: { selected: true, selectedColor: theme.accent } }} theme={{ todayTextColor: theme.accent, arrowColor: theme.accent }}/>
             <TouchableOpacity style={styles.closeModalButton} onPress={() => setDatePickerVisible(false)}><Text style={styles.closeModalText}>Cancel</Text></TouchableOpacity>
           </View>
         </View>
@@ -565,66 +573,67 @@ export default function TabTwoScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6' },
+function createMileageStyles(theme: SeasonalTheme) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.lightBg },
   webContainer: {
     maxWidth: 800,
     width: '100%',
     marginHorizontal: 'auto',
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: '#e5e7eb'
+    borderColor: theme.lightWash
   },
   scrollContent: { paddingBottom: 40 },
   content: { padding: 15 },
   header: { marginBottom: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#111827' },
+  headerTitle: { fontSize: 28, fontWeight: 'bold', color: theme.card },
   editBadge: { backgroundColor: '#fef3c7', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#fcd34d' },
   editBadgeText: { color: '#d97706', fontSize: 12, fontWeight: 'bold' },
   dateCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 12, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
   dateLabel: { fontSize: 16, fontWeight: '600', marginRight: 10, color: '#374151' },
-  dateButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e0f2fe', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8 },
-  dateButtonText: { fontSize: 16, fontWeight: '700', color: '#0369a1', marginLeft: 8 },
+  dateButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEE2E2', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8 },
+  dateButtonText: { fontSize: 16, fontWeight: '700', color: theme.accent, marginLeft: 8 },
   card: { backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
   cardEditing: { borderColor: '#fcd34d', borderWidth: 2, backgroundColor: '#fffbeb' },
   stopContainer: { marginBottom: 15 },
   stopLabelContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   stopLabel: { fontSize: 14, fontWeight: '600', marginLeft: 8, color: '#4b5563' },
   stopControls: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto' },
-  controlBtn: { padding: 5, backgroundColor: '#f3f4f6', borderRadius: 6, marginLeft: 4, borderWidth: 1, borderColor: '#e5e7eb' },
-  searchTriggerButton: { backgroundColor: '#f3f4f6', borderRadius: 8, minHeight: 50, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  controlBtn: { padding: 5, backgroundColor: '#FDECEC', borderRadius: 6, marginLeft: 4, borderWidth: 1, borderColor: '#FECACA' },
+  searchTriggerButton: { backgroundColor: '#FDECEC', borderRadius: 8, minHeight: 50, justifyContent: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: '#FECACA' },
   searchTriggerText: { fontSize: 16, color: '#1f2937' },
-  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, marginTop: 5, borderRadius: 8, backgroundColor: '#e0f2fe' },
-  addButtonText: { color: '#0a7ea4', fontWeight: 'bold', marginLeft: 8 },
+  addButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, marginTop: 5, borderRadius: 8, backgroundColor: '#FEE2E2' },
+  addButtonText: { color: theme.accent, fontWeight: 'bold', marginLeft: 8 },
   actionCard: { backgroundColor: '#fff', borderRadius: 12, padding: 15, marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
-  resultContainer: { alignItems: 'center', padding: 12, backgroundColor: '#e0f2fe', borderRadius: 8, marginBottom: 15 },
-  resultValue: { fontSize: 28, fontWeight: 'bold', color: '#0369a1' },
+  resultContainer: { alignItems: 'center', padding: 12, backgroundColor: '#FEE2E2', borderRadius: 8, marginBottom: 15 },
+  resultValue: { fontSize: 28, fontWeight: 'bold', color: theme.accent },
   actionButtons: { flexDirection: 'row', gap: 10 },
   button: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 15, borderRadius: 8, elevation: 2, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2 },
-  calculateButton: { backgroundColor: '#22c55e' },
-  saveButton: { backgroundColor: '#0ea5e9' },
+  calculateButton: { backgroundColor: theme.accent },
+  saveButton: { backgroundColor: theme.accent },
   updateButton: { backgroundColor: '#f97316' },
   cancelEditButton: { marginTop: 15, alignItems: 'center', padding: 10 },
   cancelEditText: { color: '#ef4444', fontWeight: '600', fontSize: 15 },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: 'bold', marginLeft: 8, fontSize: 16 },
   historySection: { backgroundColor: '#fff', borderRadius: 12, padding: 15, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, marginTop: 10 },
-  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#FDECEC' },
   historyTitle: { fontSize: 20, fontWeight: 'bold', color: '#1f2937' },
-  monthNavigator: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, backgroundColor: '#f9fafb', borderRadius: 8, marginBottom: 15 },
+  monthNavigator: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, backgroundColor: '#FFF1F2', borderRadius: 8, marginBottom: 15 },
   monthNavButton: { padding: 10 },
-  monthDisplayText: { fontSize: 18, fontWeight: 'bold', color: '#0369a1' },
+  monthDisplayText: { fontSize: 18, fontWeight: 'bold', color: theme.accent },
   clearMonthButton: { flexDirection: 'row', gap: 6, alignItems: 'center', alignSelf: 'flex-end', padding: 8 },
   clearText: { color: '#ef4444', fontWeight: '600', fontSize: 13 },
-  totalSummary: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#e0f2fe', padding: 12, borderRadius: 8, marginBottom: 10 },
-  totalSummaryLabel: { fontWeight: '600', color: '#0369a1', fontSize: 16 },
-  totalSummaryValue: { fontWeight: 'bold', color: '#0369a1', fontSize: 16 },
+  totalSummary: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#FEE2E2', padding: 12, borderRadius: 8, marginBottom: 10 },
+  totalSummaryLabel: { fontWeight: '600', color: theme.accent, fontSize: 16 },
+  totalSummaryValue: { fontWeight: 'bold', color: theme.accent, fontSize: 16 },
   emptyHistory: { textAlign: 'center', color: '#9ca3af', paddingVertical: 25, fontStyle: 'italic', fontSize: 15 },
-  premiumHistoryItem: { backgroundColor: '#f9fafb', borderRadius: 10, padding: 15, marginBottom: 10, borderWidth: 1, borderColor: '#e5e7eb' },
+  premiumHistoryItem: { backgroundColor: '#FFF1F2', borderRadius: 10, padding: 15, marginBottom: 10, borderWidth: 1, borderColor: '#FECACA' },
   premiumHistoryHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
   historyDate: { fontWeight: '700', fontSize: 17, color: '#111827' },
-  mileageBadge: { backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  mileageBadgeText: { color: '#0369a1', fontWeight: 'bold', fontSize: 15 },
+  mileageBadge: { backgroundColor: '#FEE2E2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  mileageBadgeText: { color: theme.accent, fontWeight: 'bold', fontSize: 15 },
   timelineContainer: { paddingLeft: 5 },
   timelineRow: { flexDirection: 'row', minHeight: 45 },
   timelineVisual: { width: 20, alignItems: 'center', marginRight: 10 },
@@ -632,31 +641,32 @@ const styles = StyleSheet.create({
   dotOrigin: { backgroundColor: '#10b981' },
   dotDest: { backgroundColor: '#ef4444' },
   dotMid: { backgroundColor: '#9ca3af', width: 8, height: 8 },
-  timelineLine: { width: 2, flex: 1, backgroundColor: '#e5e7eb', marginTop: -2, marginBottom: -2, zIndex: 1 },
+  timelineLine: { width: 2, flex: 1, backgroundColor: '#FECACA', marginTop: -2, marginBottom: -2, zIndex: 1 },
   timelineText: { flex: 1, paddingBottom: 15, marginTop: -3 },
   timelineTitle: { fontSize: 15, fontWeight: '600', color: '#1f2937' },
   timelineSub: { fontSize: 12, color: '#6b7280', marginTop: 2 },
   legacyText: { fontSize: 13, color: '#6b7280', fontStyle: 'italic', marginBottom: 10, padding: 10, textAlign: 'center' },
-  premiumActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#e5e7eb' },
-  actionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#e0f2fe', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16 },
-  actionPillText: { color: '#0369a1', fontSize: 13, fontWeight: '600', marginLeft: 6 },
+  premiumActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#FECACA' },
+  actionPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEE2E2', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16 },
+  actionPillText: { color: theme.accent, fontSize: 13, fontWeight: '600', marginLeft: 6 },
   iconButton: { padding: 8, backgroundColor: '#fee2e2', borderRadius: 8 },
   
   searchModalContainer: { flex: 1, backgroundColor: '#fff' },
-  searchModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
+  searchModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 15, paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#FECACA' },
   closeModalHeaderBtn: { padding: 5 },
   searchModalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' }, // Keep this style
 
   // New styles for web search
   webSearchContainer: { flex: 1, paddingHorizontal: 15, paddingTop: 10 },
-  webSearchInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f3f4f6', borderRadius: 8, paddingHorizontal: 15, height: 45, marginBottom: 10 },
+  webSearchInputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDECEC', borderRadius: 8, paddingHorizontal: 15, height: 45, marginBottom: 10 },
   webSearchInput: { flex: 1, fontSize: 16, color: '#1f2937' },
   webSuggestionRow: { paddingVertical: 15, paddingHorizontal: 5 },
   webSuggestionText: { fontSize: 15, color: '#1f2937' },
-  webSuggestionSeparator: { height: 1, backgroundColor: '#e5e7eb', marginLeft: 5 },
+  webSuggestionSeparator: { height: 1, backgroundColor: '#FECACA', marginLeft: 5 },
   
   modalOverlay: { flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 10, padding: 10, overflow: 'hidden' },
-  closeModalButton: { marginTop: 10, alignItems: 'center', padding: 12, backgroundColor: '#f3f4f6', borderRadius: 8 },
+  closeModalButton: { marginTop: 10, alignItems: 'center', padding: 12, backgroundColor: '#FDECEC', borderRadius: 8 },
   closeModalText: { color: '#ef4444', fontWeight: 'bold', fontSize: 16 }
 });
+}

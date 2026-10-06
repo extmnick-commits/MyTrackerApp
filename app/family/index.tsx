@@ -2,7 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { ChevronRight, LogOut, Settings, X } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -16,7 +16,10 @@ import {
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
+import { SeasonalDecor, SeasonalSnow } from '../../components/SeasonalDecor';
+import { SeasonalTheme } from '../../constants/Theme';
 import { useAuth } from '../../context/AuthContext';
+import { useViewedSeason } from '../../context/SeasonalThemeContext';
 import { db } from '../../firebaseConfig';
 
 export default function FamilyDashboard() {
@@ -56,6 +59,8 @@ export default function FamilyDashboard() {
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   const [yearStr, monthStr] = viewedMonthYear.split('-');
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
+  const theme = useViewedSeason(viewedMonthYear);
+  const styles = useMemo(() => createStyles(theme), [theme]);
 
   useEffect(() => {
     if (!caregiverId) {
@@ -214,14 +219,14 @@ export default function FamilyDashboard() {
   };
 
   const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
-  const colorHours = hoursWorked > monthlyLimit ? "#10b981" : "#3B82F6"; // Use green if they hit goal
+  const colorHours = hoursWorked > monthlyLimit ? theme.success : theme.accent;
   const progressProjected = Math.min((projectedHours / monthlyLimit) * 100, 100);
 
   // Projected Remaining calculations
   const totalProjectedConsumed = hoursWorked + projectedHours;
   const projectedRemainingHours = monthlyLimit - totalProjectedConsumed;
   const progressProjRemain = Math.min((totalProjectedConsumed / monthlyLimit) * 100, 100);
-  const colorProjRemain = projectedRemainingHours < 0 ? "#EF4444" : "#10B981";
+  const colorProjRemain = projectedRemainingHours < 0 ? theme.danger : theme.success;
 
   const markedDates: any = {};
   const allDatesWithActivity = new Set([
@@ -235,7 +240,7 @@ export default function FamilyDashboard() {
     const isProj = workLog?.isProjected;
     const hasEvent = events[date]?.length > 0;
 
-    markedDates[date] = { marked: true, hasWorkLog, hasEvent, isProj, dotColor: isProj ? '#F59E0B' : '#3B82F6' };
+    markedDates[date] = { marked: true, hasWorkLog, hasEvent, isProj, dotColor: isProj ? theme.projected : theme.accent };
   });
 
   const caregiverSettingsModal = (
@@ -245,7 +250,7 @@ export default function FamilyDashboard() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Caregiver Code</Text>
             <TouchableOpacity onPress={() => setSettingsVisible(false)}>
-              <X color="#94A3B8" size={24} />
+              <X color={theme.muted} size={24} />
             </TouchableOpacity>
           </View>
           <Text style={styles.settingsCopy}>
@@ -259,7 +264,7 @@ export default function FamilyDashboard() {
           <TextInput
             style={styles.settingsInput}
             placeholder="Family PIN"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.muted}
             value={familyPinInput}
             onChangeText={(value) => {
               setFamilyPinInput(value);
@@ -270,7 +275,7 @@ export default function FamilyDashboard() {
           />
           {pinError ? <Text style={styles.settingsError}>{pinError}</Text> : null}
           {pinSaving ? (
-            <ActivityIndicator size="large" color="#3B82F6" style={{ marginVertical: 12 }} />
+            <ActivityIndicator size="large" color={theme.accent} style={{ marginVertical: 12 }} />
           ) : (
             <TouchableOpacity style={styles.settingsSaveButton} onPress={handleSwitchCaregiver}>
               <Text style={styles.settingsSaveText}>Save Caregiver Code</Text>
@@ -284,19 +289,19 @@ export default function FamilyDashboard() {
   if (!user || !caregiverId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color="#F8FAFC" />
-        <Text style={{ color: '#94A3B8', marginTop: 15, marginBottom: 30 }}>Loading Caregiver Data...</Text>
+        <ActivityIndicator size="large" color={theme.text} />
+        <Text style={{ color: theme.muted, marginTop: 15, marginBottom: 30 }}>Loading Caregiver Data...</Text>
         <TouchableOpacity 
-          style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#1E293B', borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 12 }}
+          style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: theme.card, borderRadius: 8, borderWidth: 1, borderColor: theme.border, marginBottom: 12 }}
           onPress={openCaregiverSettings}
         >
-          <Text style={{ color: '#3B82F6', fontWeight: 'bold' }}>Add / Switch Family PIN</Text>
+          <Text style={{ color: theme.accent, fontWeight: 'bold' }}>Add / Switch Family PIN</Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#1E293B', borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}
+          style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: theme.card, borderRadius: 8, borderWidth: 1, borderColor: theme.border }}
           onPress={handleLogout}
         >
-          <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Cancel / Reset Login</Text>
+          <Text style={{ color: theme.danger, fontWeight: 'bold' }}>Cancel / Reset Login</Text>
         </TouchableOpacity>
         {caregiverSettingsModal}
       </View>
@@ -306,23 +311,25 @@ export default function FamilyDashboard() {
   return (
     <View style={[styles.container, Platform.OS === 'web' && styles.webContainer]}>
       <ScrollView>
+        <SeasonalSnow theme={theme} />
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Family View</Text>
+            <SeasonalDecor theme={theme} />
             {caregiverLabel ? <Text style={styles.headerSubtitle}>{caregiverLabel}</Text> : null}
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity onPress={openCaregiverSettings} accessibilityLabel="Caregiver settings">
-              <Settings color="#94A3B8" size={26} />
+              <Settings color={theme.muted} size={26} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleLogout}><LogOut color="#EF4444" size={28} /></TouchableOpacity>
+            <TouchableOpacity onPress={handleLogout}><LogOut color={theme.danger} size={28} /></TouchableOpacity>
           </View>
         </View>
         
         <View style={styles.dashboardRow}>
           <View style={styles.dashboardCardThird}>
             <Svg height="100" width="100" viewBox="0 0 100 100">
-              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke={theme.card} strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="45" stroke={colorHours} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressHours * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
@@ -334,19 +341,19 @@ export default function FamilyDashboard() {
 
           <TouchableOpacity style={styles.dashboardCardThird} onPress={() => setHighlightProjected(!highlightProjected)} activeOpacity={0.7}>
             <Svg height="100" width="100" viewBox="0 0 100 100">
-              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
-              <Circle cx="50" cy="50" r="45" stroke="#F59E0B" strokeWidth="8" fill="none"
+              <Circle cx="50" cy="50" r="45" stroke={theme.card} strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke={theme.projected} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressProjected * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
             <View style={styles.centerTextSmall}>
               <Text style={styles.hoursTextSmall}>{projectedHours.toFixed(1)}</Text>
             </View>
-            <Text style={[styles.chartLabel, { color: '#F59E0B' }]} numberOfLines={1}>Projected</Text>
+            <Text style={[styles.chartLabel, { color: theme.projected }]} numberOfLines={1}>Projected</Text>
           </TouchableOpacity>
 
           <View style={styles.dashboardCardThird}>
             <Svg height="100" width="100" viewBox="0 0 100 100">
-              <Circle cx="50" cy="50" r="45" stroke="#1E293B" strokeWidth="8" fill="none" />
+              <Circle cx="50" cy="50" r="45" stroke={theme.card} strokeWidth="8" fill="none" />
               <Circle cx="50" cy="50" r="45" stroke={colorProjRemain} strokeWidth="8" fill="none"
                 strokeDasharray={`${progressProjRemain * 2.82} 282`} strokeLinecap="round" transform="rotate(-90 50 50)" />
             </Svg>
@@ -359,7 +366,7 @@ export default function FamilyDashboard() {
         
         <View style={styles.calendarContainer}>
           <Calendar 
-            theme={{ calendarBackground: '#1E293B', dayTextColor: '#F8FAFC', monthTextColor: '#F8FAFC', todayTextColor: '#3B82F6', arrowColor: '#3B82F6' }}
+            theme={{ calendarBackground: theme.card, dayTextColor: theme.text, monthTextColor: theme.title, todayTextColor: theme.accent, arrowColor: theme.accent }}
             markedDates={markedDates}
             onMonthChange={(month: any) => setViewedMonthYear(month.dateString.slice(0, 7))}
             disableAllTouchEventsForDisabledDays={true}
@@ -373,12 +380,12 @@ export default function FamilyDashboard() {
               return (
                 <TouchableOpacity 
                   onPress={() => setSelectedDate(date.dateString)} 
-                  style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: '#F59E0B', backgroundColor: isSelected ? '#3B82F6' : 'transparent'}}
+                  style={{alignItems: 'center', justifyContent: 'center', height: 36, width: 36, borderRadius: 18, borderWidth: shouldHighlight ? 2 : 0, borderColor: theme.projected, backgroundColor: isSelected ? theme.accent : 'transparent'}}
                 >
-                   <Text style={{color: isSelected ? '#FFF' : (state === 'disabled' ? '#475569' : '#F8FAFC')}}>{date.day}</Text>
+                   <Text style={{color: isSelected ? '#FFF' : (state === 'disabled' ? theme.faint : theme.text)}}>{date.day}</Text>
                    <View style={{flexDirection: 'row', position: 'absolute', bottom: 4, alignItems: 'center', height: 10, zIndex: 10}}>
-                     {hasWorkLog && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || '#3B82F6', marginHorizontal: 1}} />}
-                     {hasEvent && <X size={10} color="#EF4444" strokeWidth={3} style={{ marginHorizontal: 1 }} />}
+                     {hasWorkLog && <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: marking.dotColor || theme.accent, marginHorizontal: 1}} />}
+                     {hasEvent && <X size={10} color={theme.danger} strokeWidth={3} style={{ marginHorizontal: 1 }} />}
                    </View>
                 </TouchableOpacity>
               );
@@ -395,7 +402,7 @@ export default function FamilyDashboard() {
                   <TouchableOpacity key={index} style={styles.weekRow} onPress={() => setSelectedWeek(item.week)} activeOpacity={0.7}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <Text style={styles.weekLabel}>{item.week}</Text>
-                      <ChevronRight size={16} color="#475569" style={{ marginLeft: 5 }} />
+                      <ChevronRight size={16} color={theme.faint} style={{ marginLeft: 5 }} />
                     </View>
                     <Text style={styles.weekHours}>{item.hrs.toFixed(1)} hrs</Text>
                   </TouchableOpacity>
@@ -425,35 +432,35 @@ export default function FamilyDashboard() {
           <View style={[styles.modalContent, { borderRadius: 20, margin: 20 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Details for {selectedDate}</Text>
-              <TouchableOpacity onPress={() => setSelectedDate(null)}><X color="#94A3B8" size={24} /></TouchableOpacity>
+              <TouchableOpacity onPress={() => setSelectedDate(null)}><X color={theme.muted} size={24} /></TouchableOpacity>
             </View>
             
             {/* Show Work Logs */}
             {workLogs[selectedDate || ''] ? (
               <View style={{ marginBottom: 20 }}>
-                <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Hours Logged</Text>
-                <View style={{ backgroundColor: '#0F172A', padding: 15, borderRadius: 12 }}>
-                  <Text style={{ color: '#94A3B8', fontSize: 16, marginBottom: 5 }}>In: <Text style={{ color: '#F8FAFC', fontWeight: 'bold' }}>{workLogs[selectedDate!].in}</Text></Text>
-                  <Text style={{ color: '#94A3B8', fontSize: 16, marginBottom: 5 }}>Out: <Text style={{ color: '#F8FAFC', fontWeight: 'bold' }}>{workLogs[selectedDate!].out}</Text></Text>
-                  <Text style={{ color: '#94A3B8', fontSize: 16 }}>Total: <Text style={{ color: '#3B82F6', fontWeight: 'bold' }}>{workLogs[selectedDate!].totalHours} hrs</Text></Text>
+                <Text style={{ color: theme.text, fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Hours Logged</Text>
+                <View style={{ backgroundColor: theme.bg, padding: 15, borderRadius: 12 }}>
+                  <Text style={{ color: theme.muted, fontSize: 16, marginBottom: 5 }}>In: <Text style={{ color: theme.text, fontWeight: 'bold' }}>{workLogs[selectedDate!].in}</Text></Text>
+                  <Text style={{ color: theme.muted, fontSize: 16, marginBottom: 5 }}>Out: <Text style={{ color: theme.text, fontWeight: 'bold' }}>{workLogs[selectedDate!].out}</Text></Text>
+                  <Text style={{ color: theme.muted, fontSize: 16 }}>Total: <Text style={{ color: theme.accent, fontWeight: 'bold' }}>{workLogs[selectedDate!].totalHours} hrs</Text></Text>
                 </View>
               </View>
             ) : (
-              <Text style={{ color: '#94A3B8', marginBottom: 20, fontStyle: 'italic' }}>No work hours logged for this day.</Text>
+              <Text style={{ color: theme.muted, marginBottom: 20, fontStyle: 'italic' }}>No work hours logged for this day.</Text>
             )}
 
             {/* Show Events */}
             {events[selectedDate || ''] && events[selectedDate!].length > 0 && (
               <View>
-                <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Caregiving Notes</Text>
+                <Text style={{ color: theme.text, fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Caregiving Notes</Text>
                 {events[selectedDate!].map((ev: any, index: number) => {
                   const note = [ev.title, ev.notes, ev.description]
                     .filter((value: unknown) => typeof value === 'string' && value.trim())
                     .filter((value: string, i: number, list: string[]) => list.indexOf(value) === i)
                     .join('\n\n');
                   return (
-                  <View key={ev.id || `${selectedDate}-event-${index}`} style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#EF4444' }}>
-                    <Text style={{ color: '#F8FAFC', fontSize: 15, lineHeight: 22 }}>
+                  <View key={ev.id || `${selectedDate}-event-${index}`} style={{ backgroundColor: theme.accentSoft, padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: theme.accent }}>
+                    <Text style={{ color: theme.text, fontSize: 15, lineHeight: 22 }}>
                       {note || 'No note added for this event.'}
                     </Text>
                   </View>
@@ -471,7 +478,7 @@ export default function FamilyDashboard() {
           <View style={styles.premiumModalHeader}>
             <Text style={styles.premiumModalTitle}>{displayMonth} - {selectedWeek}</Text>
             <TouchableOpacity onPress={() => setSelectedWeek(null)} style={styles.closeModalHeaderBtn}>
-              <X size={24} color="#F8FAFC" />
+              <X size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
           
@@ -486,8 +493,8 @@ export default function FamilyDashboard() {
                     <View style={styles.timelineBadge}><Text style={styles.timelineBadgeText}>{log.hrs.toFixed(1)} hrs</Text></View>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                     <Text style={{ color: '#94A3B8', fontSize: 16 }}>In: <Text style={{ color: '#F8FAFC', fontWeight: 'bold' }}>{log.in}</Text></Text>
-                     <Text style={{ color: '#94A3B8', fontSize: 16 }}>Out: <Text style={{ color: '#F8FAFC', fontWeight: 'bold' }}>{log.out}</Text></Text>
+                     <Text style={{ color: theme.muted, fontSize: 16 }}>In: <Text style={{ color: theme.text, fontWeight: 'bold' }}>{log.in}</Text></Text>
+                     <Text style={{ color: theme.muted, fontSize: 16 }}>Out: <Text style={{ color: theme.text, fontWeight: 'bold' }}>{log.out}</Text></Text>
                   </View>
                 </View>
               ))
@@ -500,55 +507,52 @@ export default function FamilyDashboard() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0F172A' },
+function createStyles(theme: SeasonalTheme) {
+  return StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.bg },
   webContainer: {
     maxWidth: 800,
     width: '100%',
     marginHorizontal: 'auto',
     borderLeftWidth: 1,
     borderRightWidth: 1,
-    borderColor: '#1E293B'
+    borderColor: theme.card
   },
   header: { padding: 24, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  headerSubtitle: { color: '#94A3B8', fontSize: 14, marginTop: 4 },
-  title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
-  settingsCopy: { color: '#94A3B8', fontSize: 15, marginBottom: 16, lineHeight: 22 },
-  settingsCurrent: { color: '#F8FAFC', fontSize: 15, marginBottom: 16, fontWeight: '600' },
-  settingsInput: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 12, fontSize: 16 },
-  settingsError: { color: '#F87171', fontSize: 14, marginBottom: 12 },
-  settingsSaveButton: { backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 4 },
+  headerSubtitle: { color: theme.muted, fontSize: 14, marginTop: 4 },
+  title: { fontSize: 32, fontWeight: 'bold', color: theme.title },
+  settingsCopy: { color: theme.muted, fontSize: 15, marginBottom: 16, lineHeight: 22 },
+  settingsCurrent: { color: theme.text, fontSize: 15, marginBottom: 16, fontWeight: '600' },
+  settingsInput: { backgroundColor: theme.bg, color: theme.text, padding: 16, borderRadius: 12, marginBottom: 12, fontSize: 16 },
+  settingsError: { color: theme.danger, fontSize: 14, marginBottom: 12 },
+  settingsSaveButton: { backgroundColor: theme.accent, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 4 },
   settingsSaveText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
   dashboardCardThird: { alignItems: 'center', position: 'relative', width: '32%' },
   centerTextSmall: { position: 'absolute', top: 34, alignItems: 'center', width: '100%' },
-  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: '#F8FAFC' },
-  chartLabel: { color: '#F8FAFC', fontWeight: 'bold', marginTop: 10, fontSize: 14, textAlign: 'center' },
+  hoursTextSmall: { fontSize: 24, fontWeight: 'bold', color: theme.text },
+  chartLabel: { color: theme.text, fontWeight: 'bold', marginTop: 10, fontSize: 14, textAlign: 'center' },
   calendarContainer: { paddingHorizontal: 24, paddingBottom: 20 },
   weeklyBreakdownContainer: { paddingHorizontal: 24, paddingBottom: 60 },
-  weeklyBreakdownTitle: { color: '#F8FAFC', fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
-  weekRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1E293B', padding: 16, borderRadius: 12, marginBottom: 8 },
-  weekLabel: { color: '#94A3B8', fontSize: 16, fontWeight: '600' },
-  weekHours: { color: '#3B82F6', fontSize: 17, fontWeight: 'bold' },
-
-  // Modal Styles
+  weeklyBreakdownTitle: { color: theme.title, fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: theme.card, padding: 16, borderRadius: 12, marginBottom: 8 },
+  weekLabel: { color: theme.muted, fontSize: 16, fontWeight: '600' },
+  weekHours: { color: theme.accent, fontSize: 17, fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center' },
-  modalContent: { backgroundColor: '#1E293B', padding: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
+  modalContent: { backgroundColor: theme.card, padding: 25, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 10 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#F8FAFC' },
-  
-  // Premium Weekly Breakdown Modal Styles
-  premiumModalContainer: { flex: 1, backgroundColor: '#0F172A' },
-  premiumModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 30, backgroundColor: '#1E293B', borderBottomWidth: 1, borderBottomColor: '#334155' },
-  premiumModalTitle: { fontSize: 20, fontWeight: 'bold', color: '#F8FAFC' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: theme.title },
+  premiumModalContainer: { flex: 1, backgroundColor: theme.bg },
+  premiumModalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, paddingTop: Platform.OS === 'ios' ? 60 : 30, backgroundColor: theme.card, borderBottomWidth: 1, borderBottomColor: theme.border },
+  premiumModalTitle: { fontSize: 20, fontWeight: 'bold', color: theme.title },
   closeModalHeaderBtn: { padding: 5 },
-  emptyHistory: { textAlign: 'center', color: '#94A3B8', paddingVertical: 20, fontStyle: 'italic' },
-  
-  timelineCard: { backgroundColor: '#1E293B', borderRadius: 16, padding: 20, marginBottom: 15 },
+  emptyHistory: { textAlign: 'center', color: theme.muted, paddingVertical: 20, fontStyle: 'italic' },
+  timelineCard: { backgroundColor: theme.card, borderRadius: 16, padding: 20, marginBottom: 15 },
   timelineCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  timelineDate: { fontWeight: 'bold', fontSize: 18, color: '#F8FAFC' },
-  timelineBadge: { backgroundColor: '#3B82F620', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  timelineBadgeText: { color: '#3B82F6', fontWeight: 'bold', fontSize: 15 },
+  timelineDate: { fontWeight: 'bold', fontSize: 18, color: theme.text },
+  timelineBadge: { backgroundColor: theme.accentSoft, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  timelineBadgeText: { color: theme.accent, fontWeight: 'bold', fontSize: 15 },
 });
+}

@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { FirebaseError } from 'firebase/app';
 import { Eye, EyeOff } from 'lucide-react-native';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,7 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SeasonalDecor, SeasonalSnow } from '../../components/SeasonalDecor';
+import { SeasonalTheme } from '../../constants/Theme';
 import { useAuth } from '../../context/AuthContext';
+import { useSeasonalTheme } from '../../context/SeasonalThemeContext';
 import { auth } from '../../firebaseConfig';
 
 type AuthMode = 'login' | 'family' | 'caregiver';
@@ -55,6 +58,8 @@ function authErrorMessage(error: unknown): string {
 
 export default function LoginScreen() {
   const { login, register } = useAuth();
+  const { theme } = useSeasonalTheme();
+  const styles = useMemo(() => createLoginStyles(theme), [theme]);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -126,15 +131,19 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Stack.Screen options={{ headerShown: false }} />
+      <SeasonalSnow theme={theme} />
       <View style={styles.loginBox}>
         <Text style={styles.loginTitle}>{title}</Text>
+        <View style={{ alignItems: 'center', marginTop: -18, marginBottom: 20 }}>
+          <SeasonalDecor theme={theme} />
+        </View>
 
         {mode === 'family' && (
           <>
             <TextInput
               style={styles.loginInput}
               placeholder="Your Name"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={theme.muted}
               value={name}
               onChangeText={(value) => {
                 setName(value);
@@ -145,7 +154,7 @@ export default function LoginScreen() {
             <TextInput
               style={styles.loginInput}
               placeholder="Family PIN"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={theme.muted}
               value={caregiverId}
               onChangeText={(value) => {
                 setCaregiverId(value);
@@ -161,7 +170,7 @@ export default function LoginScreen() {
         <TextInput
           style={styles.loginInput}
           placeholder="Email"
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={theme.muted}
           value={email}
           onChangeText={(value) => {
             setEmail(value);
@@ -176,7 +185,7 @@ export default function LoginScreen() {
           <TextInput
             style={styles.passwordInput}
             placeholder="Password"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={theme.muted}
             secureTextEntry={!showPassword}
             value={password}
             onChangeText={(value) => {
@@ -191,14 +200,14 @@ export default function LoginScreen() {
             onPress={() => setShowPassword((visible) => !visible)}
             accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
           >
-            {showPassword ? <EyeOff color="#94A3B8" size={22} /> : <Eye color="#94A3B8" size={22} />}
+            {showPassword ? <EyeOff color={theme.muted} size={22} /> : <Eye color={theme.muted} size={22} />}
           </TouchableOpacity>
         </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {submitting ? (
-          <ActivityIndicator size="large" color="#3B82F6" style={{ marginVertical: 20 }} />
+          <ActivityIndicator size="large" color={theme.accent} style={{ marginVertical: 20 }} />
         ) : (
           <>
             <TouchableOpacity style={styles.loginButton} onPress={onSubmit}>
@@ -213,7 +222,7 @@ export default function LoginScreen() {
                   <Text style={styles.toggleButtonText}>New family member? Create an account</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.toggleButton} onPress={() => switchMode('caregiver')}>
-                  <Text style={[styles.toggleButtonText, { color: '#3B82F6' }]}>
+                  <Text style={[styles.toggleButtonText, { color: theme.accent }]}>
                     New caregiver? Create an account
                   </Text>
                 </TouchableOpacity>
@@ -230,28 +239,29 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createLoginStyles(theme: SeasonalTheme) {
+  return StyleSheet.create({
   loginContainer: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: theme.bg,
     justifyContent: 'center',
     padding: 24,
   },
   loginBox: {
-    backgroundColor: '#1E293B',
+    backgroundColor: theme.card,
     padding: 30,
     borderRadius: 20,
   },
   loginTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#F8FAFC',
+    color: theme.title,
     marginBottom: 30,
     textAlign: 'center',
   },
   loginInput: {
-    backgroundColor: '#0F172A',
-    color: '#F8FAFC',
+    backgroundColor: theme.bg,
+    color: theme.text,
     padding: 16,
     borderRadius: 12,
     marginBottom: 16,
@@ -260,13 +270,13 @@ const styles = StyleSheet.create({
   passwordRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: theme.bg,
     borderRadius: 12,
     marginBottom: 16,
   },
   passwordInput: {
     flex: 1,
-    color: '#F8FAFC',
+    color: theme.text,
     padding: 16,
     fontSize: 16,
   },
@@ -275,12 +285,12 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   errorText: {
-    color: '#F87171',
+    color: theme.danger,
     fontSize: 14,
     marginBottom: 8,
   },
   loginButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: theme.accent,
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -296,7 +306,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toggleButtonText: {
-    color: '#94A3B8',
+    color: theme.muted,
     fontSize: 16,
   },
 });
+}

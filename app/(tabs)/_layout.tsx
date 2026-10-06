@@ -1,8 +1,7 @@
-import { useColorScheme } from '@/components/useColorScheme';
-import Colors from '@/constants/Colors';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useSeasonalTheme } from '../../context/SeasonalThemeContext';
 
 function TabBarIcon(props: {
   name: React.ComponentProps<typeof FontAwesome>['name'];
@@ -12,16 +11,15 @@ function TabBarIcon(props: {
 }
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { theme } = useSeasonalTheme();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        // Hides the top header to make the app "full screen"
-        headerShown: false, 
-        // Optional: keeps the background dark to match your index.tsx
-        tabBarStyle: { backgroundColor: '#0F172A', borderTopWidth: 0 }, 
+        tabBarActiveTintColor: theme.gold,
+        tabBarInactiveTintColor: theme.faint,
+        headerShown: false,
+        tabBarStyle: { backgroundColor: theme.bg, borderTopWidth: 0 },
       }}>
       <Tabs.Screen
         name="index"
