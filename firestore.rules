@@ -1,9 +1,69 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Users can only read and write their own documents.
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth.uid == userId;
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function familyMemberDoc() {
+      return get(/databases/$(database)/documents/familyMembers/$(request.auth.uid)).data;
+    }
+
+    function isFamilyOf(caregiverId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/familyMembers/$(request.auth.uid))
+        && familyMemberDoc().caregiverId == caregiverId;
+    }
+
+    function hasFamilyPin() {
+      return resource.data.familyPin is string
+        && resource.data.familyPin.size() >= 4
+        && resource.data.familyPin.size() <= 16;
+    }
+
+    match /users/{userId} {
+      allow write: if isOwner(userId);
+      allow read: if isOwner(userId)
+        || isFamilyOf(userId)
+        || hasFamilyPin();
+
+      match /{document=**} {
+        allow read: if isOwner(userId) || isFamilyOf(userId);
+        allow write: if isOwner(userId);
+      }
+    }
+
+    match /familyMembers/{memberId} {
+      allow read: if isOwner(memberId)
+        || (isSignedIn() && resource.data.caregiverId == request.auth.uid);
+
+      allow create: if isOwner(memberId)
+        && request.resource.data.keys().hasAll(['name', 'caregiverId', 'lastLogin'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.caregiverId is string
+        && request.resource.data.caregiverId.size() > 0
+        && request.resource.data.caregiverId.size() <= 128
+        && request.resource.data.lastLogin is string
+        && request.resource.data.lastLogin.size() <= 40;
+
+      allow update: if isOwner(memberId)
+        && request.resource.data.caregiverId is string
+        && request.resource.data.caregiverId.size() > 0
+        && request.resource.data.caregiverId.size() <= 128
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.lastLogin is string
+        && request.resource.data.lastLogin.size() <= 40;
+
+      allow delete: if isOwner(memberId)
+        || (isSignedIn() && resource.data.caregiverId == request.auth.uid);
     }
   }
 }

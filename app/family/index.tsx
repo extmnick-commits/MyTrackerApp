@@ -1,7 +1,7 @@
 import * as Haptics from 'expo-haptics';
-import { signOut } from 'firebase/auth';
+import { useRouter } from 'expo-router';
 import { doc, onSnapshot } from 'firebase/firestore';
-import { ChevronRight, LogOut, X } from 'lucide-react-native';
+import { ChevronRight, LogOut, Settings, X } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,17 +10,25 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import Svg, { Circle } from 'react-native-svg';
 import { useAuth } from '../../context/AuthContext';
-import { auth, db } from '../../firebaseConfig';
+import { db } from '../../firebaseConfig';
 
 export default function FamilyDashboard() {
-  const { user } = useAuth();
-  const [caregiverId, setCaregiverId] = useState<string | null>(null);
+  const { user, familyProfile, logout, switchCaregiver } = useAuth();
+  const caregiverId = familyProfile?.caregiverId ?? null;
+  const router = useRouter();
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [familyPinInput, setFamilyPinInput] = useState('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinSaving, setPinSaving] = useState(false);
+  const [caregiverLabel, setCaregiverLabel] = useState<string | null>(null);
+  const [linkedPin, setLinkedPin] = useState<string | null>(null);
   
   // Limits
   const [monthlyLimit, setMonthlyLimit] = useState(75);
@@ -50,23 +58,21 @@ export default function FamilyDashboard() {
   const displayMonth = `${monthNames[parseInt(monthStr, 10) - 1]} ${yearStr}`;
 
   useEffect(() => {
-    if (!user) return;
-    
-    const familyDocRef = doc(db, 'familyMembers', user.uid);
-    const unsubscribe = onSnapshot(familyDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setCaregiverId(docSnap.data().caregiverId);
-      }
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  useEffect(() => {
-    if (!caregiverId) return;
+    if (!caregiverId) {
+      setCaregiverLabel(null);
+      setLinkedPin(null);
+      return;
+    }
     const userDocRef = doc(db, 'users', caregiverId);
     const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
       if (docSnap.exists()) {
-        setDefaultMonthlyLimit(docSnap.data().monthlyHourLimit || 75);
+        const data = docSnap.data();
+        setDefaultMonthlyLimit(data.monthlyHourLimit || 75);
+        setCaregiverLabel(typeof data.companyName === 'string' && data.companyName.trim() ? data.companyName.trim() : 'Caregiver');
+        setLinkedPin(typeof data.familyPin === 'string' ? data.familyPin : null);
+      } else {
+        setCaregiverLabel(null);
+        setLinkedPin(null);
       }
     });
     return () => unsubscribe();
@@ -174,7 +180,37 @@ export default function FamilyDashboard() {
 
   const handleLogout = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await signOut(auth);
+    await logout();
+    router.replace('/(auth)/login');
+  };
+
+  const openCaregiverSettings = () => {
+    setFamilyPinInput('');
+    setPinError(null);
+    setSettingsVisible(true);
+  };
+
+  const handleSwitchCaregiver = async () => {
+    if (!familyPinInput.trim()) {
+      setPinError('Enter a Family PIN to switch caregivers.');
+      return;
+    }
+    setPinSaving(true);
+    setPinError(null);
+    try {
+      await switchCaregiver(familyPinInput);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSettingsVisible(false);
+      setFamilyPinInput('');
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Could not switch caregivers. Check the Family PIN.';
+      setPinError(message);
+    } finally {
+      setPinSaving(false);
+    }
   };
 
   const progressHours = Math.min((hoursWorked / monthlyLimit) * 100, 100);
@@ -202,17 +238,67 @@ export default function FamilyDashboard() {
     markedDates[date] = { marked: true, hasWorkLog, hasEvent, isProj, dotColor: isProj ? '#F59E0B' : '#3B82F6' };
   });
 
+  const caregiverSettingsModal = (
+    <Modal visible={settingsVisible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { borderRadius: 20, margin: 20 }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Caregiver Code</Text>
+            <TouchableOpacity onPress={() => setSettingsVisible(false)}>
+              <X color="#94A3B8" size={24} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.settingsCopy}>
+            Enter a Family PIN to add or switch the caregiver whose hours you can view.
+          </Text>
+          {caregiverLabel ? (
+            <Text style={styles.settingsCurrent}>
+              Linked to {caregiverLabel}{linkedPin ? ` · PIN ${linkedPin}` : ''}
+            </Text>
+          ) : null}
+          <TextInput
+            style={styles.settingsInput}
+            placeholder="Family PIN"
+            placeholderTextColor="#94A3B8"
+            value={familyPinInput}
+            onChangeText={(value) => {
+              setFamilyPinInput(value);
+              setPinError(null);
+            }}
+            keyboardType="number-pad"
+            autoCapitalize="none"
+          />
+          {pinError ? <Text style={styles.settingsError}>{pinError}</Text> : null}
+          {pinSaving ? (
+            <ActivityIndicator size="large" color="#3B82F6" style={{ marginVertical: 12 }} />
+          ) : (
+            <TouchableOpacity style={styles.settingsSaveButton} onPress={handleSwitchCaregiver}>
+              <Text style={styles.settingsSaveText}>Save Caregiver Code</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+
   if (!user || !caregiverId) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color="#F8FAFC" />
         <Text style={{ color: '#94A3B8', marginTop: 15, marginBottom: 30 }}>Loading Caregiver Data...</Text>
         <TouchableOpacity 
+          style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#1E293B', borderRadius: 8, borderWidth: 1, borderColor: '#334155', marginBottom: 12 }}
+          onPress={openCaregiverSettings}
+        >
+          <Text style={{ color: '#3B82F6', fontWeight: 'bold' }}>Add / Switch Family PIN</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
           style={{ paddingHorizontal: 20, paddingVertical: 12, backgroundColor: '#1E293B', borderRadius: 8, borderWidth: 1, borderColor: '#334155' }}
           onPress={handleLogout}
         >
           <Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Cancel / Reset Login</Text>
         </TouchableOpacity>
+        {caregiverSettingsModal}
       </View>
     );
   }
@@ -221,8 +307,16 @@ export default function FamilyDashboard() {
     <View style={[styles.container, Platform.OS === 'web' && styles.webContainer]}>
       <ScrollView>
         <View style={styles.header}>
-          <Text style={styles.title}>Family View</Text>
-          <TouchableOpacity onPress={handleLogout}><LogOut color="#EF4444" size={28} /></TouchableOpacity>
+          <View>
+            <Text style={styles.title}>Family View</Text>
+            {caregiverLabel ? <Text style={styles.headerSubtitle}>{caregiverLabel}</Text> : null}
+          </View>
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={openCaregiverSettings} accessibilityLabel="Caregiver settings">
+              <Settings color="#94A3B8" size={26} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogout}><LogOut color="#EF4444" size={28} /></TouchableOpacity>
+          </View>
         </View>
         
         <View style={styles.dashboardRow}>
@@ -351,12 +445,20 @@ export default function FamilyDashboard() {
             {/* Show Events */}
             {events[selectedDate || ''] && events[selectedDate!].length > 0 && (
               <View>
-                <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Personal Events</Text>
-                {events[selectedDate!].map((ev: any) => (
-                  <View key={ev.id} style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#EF4444' }}>
-                    <Text style={{ color: '#F8FAFC', fontSize: 15, fontStyle: 'italic' }}>Personal Event (Private)</Text>
+                <Text style={{ color: '#F8FAFC', fontSize: 16, marginBottom: 10, fontWeight: 'bold' }}>Caregiving Notes</Text>
+                {events[selectedDate!].map((ev: any, index: number) => {
+                  const note = [ev.title, ev.notes, ev.description]
+                    .filter((value: unknown) => typeof value === 'string' && value.trim())
+                    .filter((value: string, i: number, list: string[]) => list.indexOf(value) === i)
+                    .join('\n\n');
+                  return (
+                  <View key={ev.id || `${selectedDate}-event-${index}`} style={{ backgroundColor: '#ef444420', padding: 12, borderRadius: 8, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#EF4444' }}>
+                    <Text style={{ color: '#F8FAFC', fontSize: 15, lineHeight: 22 }}>
+                      {note || 'No note added for this event.'}
+                    </Text>
                   </View>
-                ))}
+                  );
+                })}
               </View>
             )}
           </View>
@@ -393,6 +495,7 @@ export default function FamilyDashboard() {
           </ScrollView>
         </View>
       </Modal>
+      {caregiverSettingsModal}
     </View>
   );
 }
@@ -408,7 +511,15 @@ const styles = StyleSheet.create({
     borderColor: '#1E293B'
   },
   header: { padding: 24, paddingTop: 60, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  headerSubtitle: { color: '#94A3B8', fontSize: 14, marginTop: 4 },
   title: { fontSize: 32, fontWeight: 'bold', color: '#F8FAFC' },
+  settingsCopy: { color: '#94A3B8', fontSize: 15, marginBottom: 16, lineHeight: 22 },
+  settingsCurrent: { color: '#F8FAFC', fontSize: 15, marginBottom: 16, fontWeight: '600' },
+  settingsInput: { backgroundColor: '#0F172A', color: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 12, fontSize: 16 },
+  settingsError: { color: '#F87171', fontSize: 14, marginBottom: 12 },
+  settingsSaveButton: { backgroundColor: '#3B82F6', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 4 },
+  settingsSaveText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   dashboardRow: { flexDirection: 'row', justifyContent: 'space-evenly', marginVertical: 10 },
   dashboardCardHalf: { alignItems: 'center', position: 'relative', width: '45%' },
   dashboardCardThird: { alignItems: 'center', position: 'relative', width: '32%' },

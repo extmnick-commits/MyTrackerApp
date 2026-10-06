@@ -1,108 +1,124 @@
 import { Stack } from 'expo-router';
-import {
-  createUserWithEmailAndPassword,
-  signInAnonymously,
-  signInWithEmailAndPassword
-} from 'firebase/auth';
-import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
+import { Eye, EyeOff } from 'lucide-react-native';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
-import { auth, db } from '../../firebaseConfig';
+import { useAuth } from '../../context/AuthContext';
+import { auth } from '../../firebaseConfig';
+
+type AuthMode = 'login' | 'family' | 'caregiver';
+
+function authErrorMessage(error: unknown): string {
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? String((error as { code: unknown }).code)
+      : '';
+
+  if (code === 'family/invalid-pin' && error instanceof Error) {
+    return error.message;
+  }
+
+  if (error instanceof FirebaseError) {
+    switch (error.code) {
+      case 'auth/invalid-credential':
+        return 'Email or password is incorrect.';
+      case 'auth/user-not-found':
+        return 'No account found for that email.';
+      case 'auth/wrong-password':
+        return 'Incorrect password.';
+      case 'auth/invalid-email':
+        return 'Enter a valid email address.';
+      case 'auth/email-already-in-use':
+        return 'An account with this email already exists.';
+      case 'auth/weak-password':
+        return 'Password should be at least 6 characters.';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Try again later.';
+      case 'family/invalid-pin':
+        return error.message;
+      default:
+        break;
+    }
+  }
+  return 'Something went wrong. Please try again.';
+}
 
 export default function LoginScreen() {
+  const { login, register } = useAuth();
+  const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [pin, setPin] = useState('');
-  const [familyName, setFamilyName] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [isPinLogin, setIsPinLogin] = useState(false);
+  const [name, setName] = useState('');
+  const [caregiverId, setCaregiverId] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const switchMode = (next: AuthMode) => {
+    setMode(next);
+    setError(null);
+    setShowPassword(false);
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      return Alert.alert('Error', 'Please enter both email and password.');
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password.');
+      return;
     }
-    setLoading(true);
+    setError(null);
+    setSubmitting(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // Navigation will be handled by the root layout
-    } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
-    } finally {
-      setLoading(false);
+      await login(email, password);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setSubmitting(false);
     }
   };
 
-  const handleRegister = async () => {
-    if (!email || !password) {
-      return Alert.alert('Error', 'Please enter both email and password.');
+  const handleFamilyRegister = async () => {
+    if (!email.trim() || !password || !name.trim() || !caregiverId.trim()) {
+      setError('Enter your name, Family PIN, email, and password.');
+      return;
     }
-    setLoading(true);
+    setError(null);
+    setSubmitting(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      // Navigation will be handled by the root layout
-    } catch (error: any) {
-      Alert.alert('Registration Failed', error.message);
-    } finally {
-      setLoading(false);
+      await register(email, password, name, caregiverId);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setSubmitting(false);
     }
   };
 
-  const handlePinLogin = async () => {
-    if (!pin || pin.length < 4) {
-      if (Platform.OS === 'web') return window.alert('Please enter a valid PIN.');
-      return Alert.alert('Error', 'Please enter a valid PIN.');
+  const handleCaregiverRegister = async () => {
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password.');
+      return;
     }
-    if (!familyName.trim()) {
-      if (Platform.OS === 'web') return window.alert('Please enter your name.');
-      return Alert.alert('Error', 'Please enter your name.');
-    }
-    setLoading(true);
+    setError(null);
+    setSubmitting(true);
     try {
-      const q = query(collection(db, 'users'), where('familyPin', '==', pin.trim()));
-      const snapshot = await getDocs(q);
-      
-      if (snapshot.empty) {
-        setLoading(false);
-        setTimeout(() => {
-          if (Platform.OS === 'web') window.alert('No account found with this Family PIN.');
-          else Alert.alert('Invalid PIN', 'No account found with this Family PIN.');
-        }, 100);
-        return;
-      }
-      
-      const caregiverId = snapshot.docs[0].id;
-      const userCred = await signInAnonymously(auth);
-      
-      // Save mapping so the family view knows which caregiver to load
-      await setDoc(doc(db, 'familyMembers', userCred.user.uid), { 
-        caregiverId, 
-        name: familyName.trim(),
-        lastLogin: new Date().toISOString()
-      });
-    } catch (error: any) {
-      setLoading(false);
-      setTimeout(() => {
-        if (Platform.OS === 'web') {
-          window.alert('PIN Login Failed: ' + error.message + '\n\n(Did you enable Anonymous Sign-in in Firebase?)');
-        } else {
-          Alert.alert('PIN Login Failed', error.message);
-        }
-      }, 100);
-    } finally {
-      setLoading(false);
+      await createUserWithEmailAndPassword(auth, email.trim(), password);
+    } catch (err) {
+      setError(authErrorMessage(err));
+      setSubmitting(false);
     }
   };
+
+  const title =
+    mode === 'family' ? 'Create Family Account' : mode === 'caregiver' ? 'Create Caregiver Account' : 'MyTrackerApp Login';
+
+  const onSubmit = mode === 'family' ? handleFamilyRegister : mode === 'caregiver' ? handleCaregiverRegister : handleLogin;
 
   return (
     <KeyboardAvoidingView
@@ -111,89 +127,102 @@ export default function LoginScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.loginBox}>
-        <Text style={styles.loginTitle}>
-          {isPinLogin ? 'Family Access' : isRegistering ? 'Create Account' : 'MyTrackerApp Login'}
-        </Text>
-        
-        {isPinLogin ? (
+        <Text style={styles.loginTitle}>{title}</Text>
+
+        {mode === 'family' && (
           <>
             <TextInput
               style={styles.loginInput}
               placeholder="Your Name"
               placeholderTextColor="#94A3B8"
-              value={familyName}
-              onChangeText={setFamilyName}
+              value={name}
+              onChangeText={(value) => {
+                setName(value);
+                setError(null);
+              }}
               autoCapitalize="words"
             />
             <TextInput
               style={styles.loginInput}
-              placeholder="Enter Family PIN"
+              placeholder="Family PIN"
               placeholderTextColor="#94A3B8"
-              value={pin}
-              onChangeText={setPin}
-              keyboardType="numeric"
-              secureTextEntry
-            />
-          </>
-        ) : (
-          <>
-            <TextInput
-              style={styles.loginInput}
-              placeholder="Email"
-              placeholderTextColor="#94A3B8"
-              value={email}
-              onChangeText={setEmail}
+              value={caregiverId}
+              onChangeText={(value) => {
+                setCaregiverId(value);
+                setError(null);
+              }}
               autoCapitalize="none"
-              keyboardType="email-address"
-            />
-            <TextInput
-              style={styles.loginInput}
-              placeholder="Password"
-              placeholderTextColor="#94A3B8"
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
+              autoCorrect={false}
+              keyboardType="number-pad"
             />
           </>
         )}
 
-        {loading ? (
-          <ActivityIndicator size="large" color="#3B82F6" style={{ marginVertical: 20 }}/>
+        <TextInput
+          style={styles.loginInput}
+          placeholder="Email"
+          placeholderTextColor="#94A3B8"
+          value={email}
+          onChangeText={(value) => {
+            setEmail(value);
+            setError(null);
+          }}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoCorrect={false}
+        />
+
+        <View style={styles.passwordRow}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder="Password"
+            placeholderTextColor="#94A3B8"
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={(value) => {
+              setPassword(value);
+              setError(null);
+            }}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={styles.eyeButton}
+            onPress={() => setShowPassword((visible) => !visible)}
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? <EyeOff color="#94A3B8" size={22} /> : <Eye color="#94A3B8" size={22} />}
+          </TouchableOpacity>
+        </View>
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        {submitting ? (
+          <ActivityIndicator size="large" color="#3B82F6" style={{ marginVertical: 20 }} />
         ) : (
           <>
-            <TouchableOpacity
-              style={styles.loginButton}
-              onPress={isPinLogin ? handlePinLogin : isRegistering ? handleRegister : handleLogin}
-            >
+            <TouchableOpacity style={styles.loginButton} onPress={onSubmit}>
               <Text style={styles.loginButtonText}>
-                {isPinLogin ? 'Access' : isRegistering ? 'Register' : 'Login'}
+                {mode === 'login' ? 'Login' : 'Create Account'}
               </Text>
             </TouchableOpacity>
-            
-            {!isPinLogin && (
-              <TouchableOpacity
-                style={styles.toggleButton}
-                onPress={() => setIsRegistering(!isRegistering)}
-              >
-                <Text style={styles.toggleButtonText}>
-                  {isRegistering
-                    ? 'Already have an account? Login'
-                    : "Don't have an account? Register"}
-                </Text>
+
+            {mode === 'login' ? (
+              <>
+                <TouchableOpacity style={styles.toggleButton} onPress={() => switchMode('family')}>
+                  <Text style={styles.toggleButtonText}>New family member? Create an account</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.toggleButton} onPress={() => switchMode('caregiver')}>
+                  <Text style={[styles.toggleButtonText, { color: '#3B82F6' }]}>
+                    New caregiver? Create an account
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity style={styles.toggleButton} onPress={() => switchMode('login')}>
+                <Text style={styles.toggleButtonText}>Already have an account? Login</Text>
               </TouchableOpacity>
             )}
-            
-            <TouchableOpacity
-              style={[styles.toggleButton, { marginTop: 30 }]}
-              onPress={() => {
-                setIsPinLogin(!isPinLogin);
-                setIsRegistering(false);
-              }}
-            >
-              <Text style={[styles.toggleButtonText, { color: '#3B82F6' }]}>
-                {isPinLogin ? 'Caregiver Login' : 'Family Access (PIN)'}
-              </Text>
-            </TouchableOpacity>
           </>
         )}
       </View>
@@ -227,6 +256,28 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 16,
     fontSize: 16,
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  passwordInput: {
+    flex: 1,
+    color: '#F8FAFC',
+    padding: 16,
+    fontSize: 16,
+  },
+  eyeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  errorText: {
+    color: '#F87171',
+    fontSize: 14,
+    marginBottom: 8,
   },
   loginButton: {
     backgroundColor: '#3B82F6',

@@ -19,28 +19,35 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 function InitialLayout() {
-  const { user, loading } = useAuth();
+  const { user, familyProfile, isLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const segment = segments[0] as string;
+  const inTabsGroup = segment === '(tabs)';
+  const inFamilyGroup = segment === 'family';
+  const inAuthGroup = segment === '(auth)';
 
   useEffect(() => {
-    if (loading) return;
+    if (isLoading) return;
 
-    const inTabsGroup = segments[0] === '(tabs)';
-    const inFamilyGroup = (segments[0] as string) === 'family';
-
-    if (user) {
-      if (user.isAnonymous) {
-        if (!inFamilyGroup) router.replace('/family' as any);
-      } else {
-        if (!inTabsGroup) router.replace('/(tabs)');
-      }
-    } else {
+    if (!user) {
       if (inTabsGroup || inFamilyGroup) {
         router.replace('/(auth)/login');
       }
+      return;
     }
-  }, [user, loading, segments, router]);
+
+    if (familyProfile) {
+      if (inTabsGroup || inAuthGroup) {
+        router.replace('/family');
+      }
+      return;
+    }
+
+    if (inFamilyGroup || inAuthGroup) {
+      router.replace('/(tabs)');
+    }
+  }, [user, familyProfile, isLoading, inTabsGroup, inFamilyGroup, inAuthGroup, router]);
 
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
@@ -52,12 +59,18 @@ function InitialLayout() {
   }, [error]);
 
   useEffect(() => {
-    if (loaded && !loading) {
+    if (loaded && !isLoading) {
       SplashScreen.hideAsync();
     }
-  }, [loaded, loading]);
+  }, [loaded, isLoading]);
 
-  if (!loaded || loading) {
+  const awaitingRedirect =
+    !isLoading &&
+    ((!user && (inTabsGroup || inFamilyGroup)) ||
+      (!!user && !!familyProfile && (inTabsGroup || inAuthGroup)) ||
+      (!!user && !familyProfile && (inFamilyGroup || inAuthGroup)));
+
+  if (!loaded || isLoading || awaitingRedirect) {
     return null;
   }
 
